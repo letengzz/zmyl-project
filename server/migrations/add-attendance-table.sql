@@ -1,0 +1,11 @@
+-- 考勤记录表
+CREATE TABLE IF NOT EXISTS attendance (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  person_id INT NOT NULL,
+  attendance_date DATE NOT NULL,
+  hours DECIMAL(5,1) NOT NULL DEFAULT 0 COMMENT '考勤工时（小时）',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_person_date (person_id, attendance_date),
+  FOREIGN KEY (person_id) REFERENCES person(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='考勤记录表';
