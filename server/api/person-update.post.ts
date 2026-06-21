@@ -13,6 +13,7 @@ export default defineEventHandler(async (event) => {
       location,
       address,
       entry_time,
+      departure_time,
       is_resign,
       emer_person,
       emer_phone,
@@ -72,6 +73,10 @@ export default defineEventHandler(async (event) => {
     if (entry_time !== undefined) {
       updateFields.push('entry_time = ?')
       updateParams.push(entry_time || null)
+    }
+    if (departure_time !== undefined) {
+      updateFields.push('departure_time = ?')
+      updateParams.push(departure_time || null)
     }
     if (is_resign !== undefined) {
       updateFields.push('is_resign = ?')

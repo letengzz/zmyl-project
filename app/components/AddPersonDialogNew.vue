@@ -1,11 +1,11 @@
 <template>
   <Dialog :open="open" @update:open="onOpenChange">
-    <DialogContent class="sm:max-w-[500px]">
+    <DialogContent class="sm:max-w-[700px]">
       <DialogHeader>
         <DialogTitle>新增人员</DialogTitle>
       </DialogHeader>
       <div class="space-y-4">
-        <div class="grid grid-cols-2 gap-4">
+        <div class="grid grid-cols-3 gap-4">
           <div class="space-y-2">
             <Label>姓名 <span class="text-red-500">*</span></Label>
             <Input v-model="form.name" placeholder="请输入姓名" />
@@ -41,11 +41,17 @@
               </SelectContent>
             </Select>
           </div>
+          <div></div>
           <div class="space-y-2">
             <Label>入职时间</Label>
             <Input type="date" v-model="form.entry_time" />
           </div>
-          <div class="space-y-2 col-span-2">
+          <div class="space-y-2">
+            <Label>离场时间</Label>
+            <Input type="date" v-model="form.departure_time" />
+          </div>
+          <div></div>
+          <div class="space-y-2 col-span-3">
             <Label>地址</Label>
             <Input v-model="form.address" placeholder="请输入地址" />
           </div>
@@ -57,7 +63,8 @@
             <Label>紧急联系人电话</Label>
             <Input v-model="form.emer_phone" placeholder="请输入紧急联系人电话" />
           </div>
-          <div class="space-y-2 col-span-2">
+          <div></div>
+          <div class="space-y-2">
             <Label>银行卡号</Label>
             <Input v-model="form.bank_num" placeholder="请输入银行卡号" />
           </div>
@@ -131,6 +138,7 @@ const form = reactive({
   location: null as number | null,
   address: '',
   entry_time: '',
+  departure_time: '',
   emer_person: '',
   emer_phone: '',
   bank_num: '',
@@ -151,6 +159,7 @@ function resetForm() {
   form.location = null
   form.address = ''
   form.entry_time = ''
+  form.departure_time = ''
   form.emer_person = ''
   form.emer_phone = ''
   form.bank_num = ''
@@ -195,6 +204,7 @@ async function handleSubmit() {
         location: form.location,
         address: form.address.trim(),
         entry_time: form.entry_time || null,
+        departure_time: form.departure_time || null,
         emer_person: form.emer_person.trim(),
         emer_phone: form.emer_phone.trim(),
         bank_num: form.bank_num.trim(),

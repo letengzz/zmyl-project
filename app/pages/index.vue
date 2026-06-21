@@ -69,8 +69,8 @@ const features = [
   },
   {
     to: '/scaffold-calc',
-    title: '脚手架计算',
-    description: '脚手架工程量计算工具，快速计算搭设面积和材料用量',
+    title: '脚手架',
+    description: '脚手架架设管理',
     icon: Calculator,
     bgColor: 'bg-purple-50',
     iconColor: 'text-purple-600',

@@ -48,7 +48,7 @@ const navItems = [
   { to: '/person-manage', label: '人员管理', icon: Users },
   { to: '/attendance', label: '考勤管理', icon: CalendarClock },
   { to: '/overtime', label: '加班管理', icon: Clock },
-  { to: '/scaffold-calc', label: '脚手架计算', icon: Calculator },
+  { to: '/scaffold-calc', label: '脚手架管理', icon: Calculator },
   { to: '/tools', label: '工具箱', icon: Wrench },
 ]
 

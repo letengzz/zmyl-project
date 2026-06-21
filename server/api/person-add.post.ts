@@ -12,6 +12,7 @@ export default defineEventHandler(async (event) => {
       location,
       address,
       entry_time,
+      departure_time,
       emer_person,
       emer_phone,
       bank_num,
@@ -32,8 +33,8 @@ export default defineEventHandler(async (event) => {
     
     // 插入数据库
     const result = await query(
-      `INSERT INTO person (name, id_card, phone, position, location, address, entry_time, emer_person, emer_phone, bank_num, bank_name, bank_code, is_resign, \`order\`, attendance_salary, actual_salary) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+      `INSERT INTO person (name, id_card, phone, position, location, address, entry_time, departure_time, emer_person, emer_phone, bank_num, bank_name, bank_code, is_resign, \`order\`, attendance_salary, actual_salary) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
       [
         name,
         id_card,
@@ -42,6 +43,7 @@ export default defineEventHandler(async (event) => {
         location,
         address || null,
         entry_time || null,
+        departure_time || null,
         emer_person || null,
         emer_phone || null,
         bank_num || null,

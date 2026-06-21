@@ -1,11 +1,11 @@
 <template>
   <Dialog :open="open" @update:open="onOpenChange">
-    <DialogContent class="sm:max-w-[500px]">
+    <DialogContent class="sm:max-w-[700px]">
       <DialogHeader>
         <DialogTitle>编辑人员</DialogTitle>
       </DialogHeader>
       <div class="space-y-4">
-        <div class="grid grid-cols-2 gap-4">
+        <div class="grid grid-cols-3 gap-4">
           <div class="space-y-2">
             <Label>姓名 <span class="text-red-500">*</span></Label>
             <Input v-model="form.name" placeholder="请输入姓名" />
@@ -41,9 +41,14 @@
               </SelectContent>
             </Select>
           </div>
+          <div></div>
           <div class="space-y-2">
             <Label>入职时间</Label>
             <Input type="date" v-model="form.entry_time" />
+          </div>
+          <div class="space-y-2">
+            <Label>离场时间</Label>
+            <Input type="date" v-model="form.departure_time" />
           </div>
           <div class="space-y-2">
             <Label>是否离职</Label>
@@ -57,7 +62,7 @@
               </SelectContent>
             </Select>
           </div>
-          <div class="space-y-2 col-span-2">
+          <div class="space-y-2 col-span-3">
             <Label>地址</Label>
             <Input v-model="form.address" placeholder="请输入地址" />
           </div>
@@ -69,7 +74,8 @@
             <Label>紧急联系人电话</Label>
             <Input v-model="form.emer_phone" placeholder="请输入紧急联系人电话" />
           </div>
-          <div class="space-y-2 col-span-2">
+          <div></div>
+          <div class="space-y-2">
             <Label>银行卡号</Label>
             <Input v-model="form.bank_num" placeholder="请输入银行卡号" />
           </div>
@@ -133,6 +139,7 @@ interface Person {
   location: number
   address: string
   entry_time: string
+  departure_time: string
   is_resign: number
   emer_person: string
   emer_phone: string
@@ -165,6 +172,7 @@ const form = reactive({
   location: null as number | null,
   address: '',
   entry_time: '',
+  departure_time: '',
   is_resign: 0,
   emer_person: '',
   emer_phone: '',
@@ -197,6 +205,17 @@ watch(() => props.person, (newPerson) => {
       }
     } else {
       form.entry_time = ''
+    }
+    // 处理离场时间格式
+    if (newPerson.departure_time) {
+      const dDate = new Date(newPerson.departure_time)
+      if (!isNaN(dDate.getTime())) {
+        form.departure_time = dDate.toISOString().split('T')[0] || ''
+      } else {
+        form.departure_time = ''
+      }
+    } else {
+      form.departure_time = ''
     }
     form.is_resign = newPerson.is_resign || 0
     form.emer_person = newPerson.emer_person || ''
@@ -247,6 +266,7 @@ async function handleSubmit() {
         location: form.location,
         address: form.address.trim(),
         entry_time: form.entry_time || null,
+        departure_time: form.departure_time || null,
         is_resign: form.is_resign,
         emer_person: form.emer_person.trim(),
         emer_phone: form.emer_phone.trim(),
