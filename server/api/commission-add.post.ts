@@ -4,7 +4,7 @@ import { query } from '../utils/db'
 export default defineEventHandler(async (event) => {
   try {
     const body = await readBody(event)
-    const { commission_no, has_electronic, is_approved, is_erected, applicant_unit, entry_time, photo_urls } = body
+    const { commission_no, has_electronic, is_approved, is_erected, applicant_unit, entry_time, photo_urls, remark } = body
     
     if (!commission_no || !applicant_unit) {
       return { success: false, message: '委托单编号和申请单位为必填项' }
@@ -27,8 +27,8 @@ export default defineEventHandler(async (event) => {
     }
     
     const sql = `
-      INSERT INTO scaffold_commission (commission_no, has_electronic, is_approved, is_erected, applicant_unit, entry_time, photo_urls)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO scaffold_commission (commission_no, has_electronic, is_approved, is_erected, applicant_unit, entry_time, photo_urls, remark)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `
     
     const result = await query(sql, [
@@ -38,7 +38,8 @@ export default defineEventHandler(async (event) => {
       is_erected ? 1 : 0,
       applicant_unit,
       formattedTime,
-      photoUrlsJson
+      photoUrlsJson,
+      remark || null
     ]) as any
     
     return { 

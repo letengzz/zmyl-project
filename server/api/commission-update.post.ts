@@ -5,7 +5,7 @@ import { query } from '../utils/db'
 export default defineEventHandler(async (event) => {
   try {
     const body = await readBody(event)
-    const { id, commission_no, has_electronic, is_approved, is_erected, applicant_unit, entry_time, photo_urls } = body
+    const { id, commission_no, has_electronic, is_approved, is_erected, applicant_unit, entry_time, photo_urls, remark } = body
     
     if (!id) {
       return { success: false, message: '缺少ID' }
@@ -29,7 +29,7 @@ export default defineEventHandler(async (event) => {
     
     const sql = `
       UPDATE scaffold_commission 
-      SET commission_no = ?, has_electronic = ?, is_approved = ?, is_erected = ?, applicant_unit = ?, entry_time = ?, photo_urls = ?
+      SET commission_no = ?, has_electronic = ?, is_approved = ?, is_erected = ?, applicant_unit = ?, entry_time = ?, photo_urls = ?, remark = ?
       WHERE id = ?
     `
     
@@ -41,6 +41,7 @@ export default defineEventHandler(async (event) => {
       applicant_unit,
       formattedTime || null,
       photoUrlsJson,
+      remark || null,
       id
     ])
     

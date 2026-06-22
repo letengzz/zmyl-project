@@ -48,12 +48,13 @@
                 <th class="px-4 py-3 text-left font-medium text-gray-700">申请单位</th>
                 <th class="px-4 py-3 text-left font-medium text-gray-700">录入时间</th>
                 <th class="px-4 py-3 text-left font-medium text-gray-700">照片</th>
+                <th class="px-4 py-3 text-left font-medium text-gray-700">备注</th>
                 <th class="px-4 py-3 text-left font-medium text-gray-700">操作</th>
               </tr>
             </thead>
             <tbody class="divide-y">
               <tr v-if="commissionList.length === 0">
-                <td colspan="8" class="px-4 py-8 text-center text-gray-500">暂无数据</td>
+                <td colspan="9" class="px-4 py-8 text-center text-gray-500">暂无数据</td>
               </tr>
               <tr v-for="item in commissionList" :key="item.id" class="hover:bg-gray-50">
                 <td class="px-4 py-3 font-medium">{{ item.commission_no }}</td>
@@ -123,6 +124,7 @@
                   </div>
                   <span v-else class="text-gray-400">无</span>
                 </td>
+                <td class="px-4 py-3 text-gray-500 max-w-[150px] truncate" :title="item.remark">{{ item.remark || '-' }}</td>
                 <td class="px-4 py-3">
                   <div class="flex gap-1">
                     <Button 
@@ -555,6 +557,10 @@
               </div>
             </div>
           </div>
+          <div class="space-y-2">
+            <Label>备注</Label>
+            <Input v-model="commissionForm.remark" placeholder="备注信息（选填）" />
+          </div>
           <div v-if="commissionError" class="text-sm text-red-600">{{ commissionError }}</div>
         </div>
         <DialogFooter>
@@ -916,6 +922,7 @@ interface CommissionItem {
   applicant_unit: string
   entry_time: string
   photo_urls: string[]
+  remark: string
 }
 
 interface UploadPreview {
@@ -943,6 +950,7 @@ const commissionForm = reactive({
   is_erected: '0',
   applicant_unit: '',
   entry_time: '',
+  remark: '',
 })
 
 // 生成委托单编号
@@ -1105,6 +1113,7 @@ function openCommissionDialog() {
   commissionForm.is_erected = '0'
   commissionForm.applicant_unit = ''
   commissionForm.entry_time = getBeijingTime()
+  commissionForm.remark = ''
   uploadPreviews.value = []
   commissionError.value = ''
   showCommissionDialog.value = true
@@ -1132,6 +1141,7 @@ function openEditCommissionDialog(item: CommissionItem) {
   commissionForm.is_erected = String(item.is_erected)
   commissionForm.applicant_unit = item.applicant_unit
   commissionForm.entry_time = item.entry_time ? item.entry_time.slice(0, 16) : getBeijingTime()
+  commissionForm.remark = item.remark || ''
   uploadPreviews.value = []
   commissionError.value = ''
   showCommissionDialog.value = true
@@ -1213,7 +1223,8 @@ async function saveCommission() {
           is_erected: Number(commissionForm.is_erected),
           applicant_unit: commissionForm.applicant_unit,
           entry_time: commissionForm.entry_time ? new Date(commissionForm.entry_time).toISOString() : null,
-          photo_urls: photoUrls
+          photo_urls: photoUrls,
+          remark: commissionForm.remark
         }
       }) as any
       
@@ -1234,7 +1245,8 @@ async function saveCommission() {
           is_erected: Number(commissionForm.is_erected),
           applicant_unit: commissionForm.applicant_unit,
           entry_time: commissionForm.entry_time ? new Date(commissionForm.entry_time).toISOString() : null,
-          photo_urls: photoUrls
+          photo_urls: photoUrls,
+          remark: commissionForm.remark
         }
       }) as any
       
