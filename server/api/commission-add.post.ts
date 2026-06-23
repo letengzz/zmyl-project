@@ -10,21 +10,20 @@ export default defineEventHandler(async (event) => {
       return { success: false, message: '委托单编号和申请单位为必填项' }
     }
     
+    // 检查委托编号是否已存在
+    const existing = await query('SELECT id FROM scaffold_commission WHERE commission_no = ? AND is_deleted = 0', [commission_no]) as any[]
+    if (existing.length > 0) {
+      return { success: false, message: '委托编号已存在，请勿重复添加' }
+    }
+
     const photoUrlsJson = photo_urls && photo_urls.length > 0 
       ? JSON.stringify(photo_urls) 
       : null
     
-    // 格式化时间为 MySQL DATETIME 格式 (YYYY-MM-DD HH:MM:SS)
-    let formattedTime = ''
-    if (entry_time) {
-      const d = new Date(entry_time)
-      const pad = (n: number) => String(n).padStart(2, '0')
-      formattedTime = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-    } else {
-      const d = new Date()
-      const pad = (n: number) => String(n).padStart(2, '0')
-      formattedTime = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-    }
+    // 录入时间始终为当前时间
+    const d = new Date()
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const formattedTime = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
     
     const sql = `
       INSERT INTO scaffold_commission (commission_no, has_electronic, is_approved, is_erected, applicant_unit, entry_time, photo_urls, remark)

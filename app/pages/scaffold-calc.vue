@@ -150,6 +150,14 @@
             </tbody>
           </table>
         </div>
+        <!-- 分页 -->
+        <div v-if="commissionPagination.totalPages > 1" class="flex items-center justify-between mt-4 pt-4 border-t">
+          <div class="text-sm text-gray-600">共 {{ commissionPagination.total }} 条记录，第 {{ commissionPagination.page }} / {{ commissionPagination.totalPages }} 页</div>
+          <div class="flex items-center gap-2">
+            <Button @click="changeCommissionPage(commissionPagination.page - 1)" :disabled="commissionPagination.page <= 1" variant="outline" size="sm">上一页</Button>
+            <Button @click="changeCommissionPage(commissionPagination.page + 1)" :disabled="commissionPagination.page >= commissionPagination.totalPages" variant="outline" size="sm">下一页</Button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -307,6 +315,14 @@
             </tbody>
           </table>
         </div>
+        <!-- 分页 -->
+        <div v-if="commissionPagination.totalPages > 1" class="flex items-center justify-between mt-4 pt-4 border-t">
+          <div class="text-sm text-gray-600">共 {{ commissionPagination.total }} 条记录，第 {{ commissionPagination.page }} / {{ commissionPagination.totalPages }} 页</div>
+          <div class="flex items-center gap-2">
+            <Button @click="changeCommissionPage(commissionPagination.page - 1)" :disabled="commissionPagination.page <= 1" variant="outline" size="sm">上一页</Button>
+            <Button @click="changeCommissionPage(commissionPagination.page + 1)" :disabled="commissionPagination.page >= commissionPagination.totalPages" variant="outline" size="sm">下一页</Button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -362,6 +378,14 @@
               </tr>
             </tbody>
           </table>
+        </div>
+        <!-- 分页 -->
+        <div v-if="commissionPagination.totalPages > 1" class="flex items-center justify-between mt-4 pt-4 border-t">
+          <div class="text-sm text-gray-600">共 {{ commissionPagination.total }} 条记录，第 {{ commissionPagination.page }} / {{ commissionPagination.totalPages }} 页</div>
+          <div class="flex items-center gap-2">
+            <Button @click="changeCommissionPage(commissionPagination.page - 1)" :disabled="commissionPagination.page <= 1" variant="outline" size="sm">上一页</Button>
+            <Button @click="changeCommissionPage(commissionPagination.page + 1)" :disabled="commissionPagination.page >= commissionPagination.totalPages" variant="outline" size="sm">下一页</Button>
+          </div>
         </div>
       </div>
     </div>
@@ -504,7 +528,7 @@
           </div>
           <div class="space-y-2">
             <Label>录入时间</Label>
-            <Input type="datetime-local" v-model="commissionForm.entry_time" />
+            <p class="h-9 px-3 py-2 border rounded-md text-sm bg-gray-50 text-gray-700">{{ formatDateTime(commissionForm.entry_time) }}</p>
           </div>
           <div class="space-y-2">
             <Label>上传照片</Label>
@@ -935,6 +959,12 @@ interface UploadPreview {
 
 const commissionList = ref<CommissionItem[]>([])
 const commissionSearch = ref('')
+const commissionPagination = reactive({
+  page: 1,
+  pageSize: 10,
+  total: 0,
+  totalPages: 0
+})
 const showCommissionDialog = ref(false)
 const showCommissionDeleteDialog = ref(false)
 const deletingCommission = ref<CommissionItem | null>(null)
@@ -1025,20 +1055,37 @@ let searchTimer: ReturnType<typeof setTimeout> | null = null
 function debouncedFetchCommission() {
   if (searchTimer) clearTimeout(searchTimer)
   searchTimer = setTimeout(() => {
+    commissionPagination.page = 1
+    commissionPagination.totalPages = 0
     fetchCommissionList()
   }, 300)
+}
+
+// 切换页码
+function changeCommissionPage(p: number) {
+  if (p < 1 || p > commissionPagination.totalPages) return
+  commissionPagination.page = p
+  fetchCommissionList()
 }
 
 // 获取委托列表
 async function fetchCommissionList() {
   try {
-    const params: Record<string, string> = {}
+    const params = new URLSearchParams({
+      page: String(commissionPagination.page),
+      pageSize: String(commissionPagination.pageSize)
+    })
     if (commissionSearch.value) {
-      params.search = commissionSearch.value
+      params.append('search', commissionSearch.value)
     }
-    const response = await $fetch('/api/commission-list', { params }) as any
+    const queryStr = params.toString()
+    const response = await $fetch(`/api/commission-list?${queryStr}`) as any
     if (response.success) {
       commissionList.value = response.data
+      if (response.pagination) {
+        commissionPagination.total = response.pagination.total
+        commissionPagination.totalPages = Math.ceil(response.pagination.total / commissionPagination.pageSize)
+      }
     }
   } catch (error) {
     console.error('获取架设委托列表失败:', error)
@@ -1114,6 +1161,7 @@ function openCommissionDialog() {
   commissionForm.applicant_unit = ''
   commissionForm.entry_time = getBeijingTime()
   commissionForm.remark = ''
+  commissionForm.entry_time = ''
   uploadPreviews.value = []
   commissionError.value = ''
   showCommissionDialog.value = true
@@ -1140,9 +1188,15 @@ function openEditCommissionDialog(item: CommissionItem) {
   commissionForm.is_approved = String(item.is_approved)
   commissionForm.is_erected = String(item.is_erected)
   commissionForm.applicant_unit = item.applicant_unit
-  commissionForm.entry_time = item.entry_time ? item.entry_time.slice(0, 16) : getBeijingTime()
+  commissionForm.entry_time = item.entry_time || ''
   commissionForm.remark = item.remark || ''
-  uploadPreviews.value = []
+  // 恢复已有图片到预览列表
+  uploadPreviews.value = (item.photo_urls || []).map(url => ({
+    localUrl: url,
+    url: url,
+    uploading: false,
+    uploaded: true
+  }))
   commissionError.value = ''
   showCommissionDialog.value = true
 }
@@ -1222,7 +1276,6 @@ async function saveCommission() {
           is_approved: Number(commissionForm.is_approved),
           is_erected: Number(commissionForm.is_erected),
           applicant_unit: commissionForm.applicant_unit,
-          entry_time: commissionForm.entry_time ? new Date(commissionForm.entry_time).toISOString() : null,
           photo_urls: photoUrls,
           remark: commissionForm.remark
         }
@@ -1230,6 +1283,7 @@ async function saveCommission() {
       
       if (response.success) {
         showCommissionDialog.value = false
+        // commissionPagination.page = 1
         fetchCommissionList()
       } else {
         commissionError.value = response.message || '保存失败'
@@ -1244,7 +1298,6 @@ async function saveCommission() {
           is_approved: Number(commissionForm.is_approved),
           is_erected: Number(commissionForm.is_erected),
           applicant_unit: commissionForm.applicant_unit,
-          entry_time: commissionForm.entry_time ? new Date(commissionForm.entry_time).toISOString() : null,
           photo_urls: photoUrls,
           remark: commissionForm.remark
         }
@@ -1252,6 +1305,7 @@ async function saveCommission() {
       
       if (response.success) {
         showCommissionDialog.value = false
+        commissionPagination.page = 1
         fetchCommissionList()
       } else {
         commissionError.value = response.message || '保存失败'
