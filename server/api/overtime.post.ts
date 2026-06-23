@@ -1,75 +1,88 @@
 import { execute } from '../utils/db'
 
 // POST /api/overtime
-// Body: { date, startTime, endTime, personIds: number[], location, workLocation?, workContent? }
+// Body: { date, location, tasks: Array<{ startTime, endTime, personIds: number[], workLocation?, workContent? }> }
 export default defineEventHandler(async (event) => {
   try {
     const body = await readBody(event) as {
       date: string
-      startTime: string
-      endTime: string
-      personIds: number[]
       location: number
-      workLocation?: string
-      workContent?: string
+      tasks: Array<{
+        id?: number
+        startTime: string
+        endTime: string
+        personIds: number[]
+        workLocation?: string
+        workContent?: string
+      }>
     }
 
-    const { date, startTime, endTime, personIds, location, workLocation, workContent } = body
+    const { date, location, tasks } = body
 
-    if (!date || !startTime || !endTime || !location) {
-      return { success: false, message: '缺少必要参数' }
+    if (!date || !location || !tasks) {
+      return { success: false, message: '\u7f3a\u5c11\u5fc5\u8981\u53c2\u6570' }
     }
 
-    // 计算加班时长（小时）
-    const start = new Date(startTime)
-    const end = new Date(endTime)
-    
-    if (end <= start) {
-      return { success: false, message: '结束时间必须大于开始时间' }
+    for (const task of tasks) {
+      if (!task.startTime || !task.endTime) {
+        return { success: false, message: '\u7f3a\u5c11\u4efb\u52a1\u5f00\u59cb\u6216\u7ed3\u675f\u65f6\u95f4' }
+      }
+      const start = new Date(task.startTime)
+      const end = new Date(task.endTime)
+      if (end <= start) {
+        return { success: false, message: '\u4efb\u52a1\u7ed3\u675f\u65f6\u95f4\u5fc5\u987b\u5927\u4e8e\u5f00\u59cb\u65f6\u95f4' }
+      }
     }
 
-    const durationMs = end.getTime() - start.getTime()
-    const durationHours = parseFloat((durationMs / 3600000).toFixed(2))
-
-    // 先删除该日期该位置已有的任务和记录（避免重复）
-    // 先删除 overtime_record（因为有外键关联）
     await execute(
       `DELETE r FROM overtime_record r 
        JOIN overtime_task t ON r.task_id = t.id 
        WHERE t.task_date = ? AND t.location = ?`,
       [date, location]
     )
-    // 再删除 overtime_task
     await execute('DELETE FROM overtime_task WHERE task_date = ? AND location = ?', [date, location])
 
-    // 插入新任务
-    const taskResult = await execute(
-      `INSERT INTO overtime_task (task_date, start_time, end_time, location, work_location, work_content, duration_hours) 
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [date, startTime, endTime, location, workLocation || null, workContent || null, durationHours]
-    ) as any
+    // 如果没有任务，直接返回（已清除旧数据）
+    if (tasks.length === 0) {
+      return { success: true, message: '已清除加班记录' }
+    }
 
-    const taskId = taskResult.insertId
+    const results: string[] = []
+    for (const task of tasks) {
+      const start = new Date(task.startTime)
+      const end = new Date(task.endTime)
+      const durationMs = end.getTime() - start.getTime()
+      const durationHours = parseFloat((durationMs / 3600000).toFixed(2))
 
-    // 批量插入人员记录，sort 字段为人员在数组中的位置
-    if (personIds.length > 0) {
-      const values: any[] = []
-      const placeholders: string[] = []
-      
-      for (let i = 0; i < personIds.length; i++) {
-        placeholders.push('(?, ?, ?)')
-        values.push(taskId, personIds[i], i + 1)
+      const taskResult = await execute(
+        `INSERT INTO overtime_task (task_date, start_time, end_time, location, work_location, work_content, duration_hours) 
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [date, task.startTime, task.endTime, location, task.workLocation || null, task.workContent || null, durationHours]
+      ) as any
+
+      const taskId = taskResult.insertId
+
+      if (task.personIds && task.personIds.length > 0) {
+        const values: any[] = []
+        const placeholders: string[] = []
+        
+        for (let i = 0; i < task.personIds.length; i++) {
+          placeholders.push('(?, ?, ?)')
+          values.push(taskId, task.personIds[i], i + 1)
+        }
+
+        const sql = `INSERT INTO overtime_record (task_id, person_id, sort) VALUES ${placeholders.join(',')}`
+        await execute(sql, values)
+        results.push(`\u4eba\u5458 ${task.personIds.length} \u4eba\uff0c\u65f6\u957f ${durationHours}h`)
+      } else {
+        results.push(`\u65e0\u4eba\u5458\uff0c\u65f6\u957f ${durationHours}h`)
       }
-
-      const sql = `INSERT INTO overtime_record (task_id, person_id, sort) VALUES ${placeholders.join(',')}`
-      await execute(sql, values)
     }
 
     return { 
       success: true, 
-      message: personIds.length > 0
-        ? `成功保存 ${personIds.length} 条加班记录，每人 ${durationHours} 小时`
-        : `成功保存加班任务（无人员记录）`
+      message: `\u6210\u529f\u4fdd\u5b58 ${tasks.length} \u6761\u52a0\u73ed\u4efb\u52a1`,
+      details: results
     }
   } catch (error: any) {
     console.error('Save overtime error:', error)
