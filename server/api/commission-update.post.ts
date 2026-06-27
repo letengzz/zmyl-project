@@ -25,9 +25,17 @@ export default defineEventHandler(async (event) => {
       ? JSON.stringify(photo_urls) 
       : null
     
+    // 格式化时间为 MySQL DATETIME 格式
+    let formattedTime = ''
+    if (entry_time) {
+      const d = new Date(entry_time)
+      const pad = (n: number) => String(n).padStart(2, '0')
+      formattedTime = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+    }
+    
     const sql = `
       UPDATE scaffold_commission 
-      SET commission_no = ?, has_electronic = ?, is_approved = ?, is_erected = ?, applicant_unit = ?, photo_urls = ?, remark = ?
+      SET commission_no = ?, has_electronic = ?, is_approved = ?, is_erected = ?, applicant_unit = ?, entry_time = ?, photo_urls = ?, remark = ?
       WHERE id = ?
     `
     
@@ -37,6 +45,7 @@ export default defineEventHandler(async (event) => {
       is_approved ? 1 : 0,
       is_erected ? 1 : 0,
       applicant_unit,
+      formattedTime || null,
       photoUrlsJson,
       remark || null,
       id
