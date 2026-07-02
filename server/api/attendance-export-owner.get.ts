@@ -69,7 +69,8 @@ function setFormula(xml: string, ref: string, formula: string): string {
   const sMatch = oldTag.match(/\ss="(\d+)"/)
   const styleAttr = sMatch ? ` s="${sMatch[1]}"` : ''
 
-  const newTag = `<c r="${ref}"${styleAttr}><f>${escXml(formula)}</f><v>0</v></c>`
+  // 不设置 <v> 标签，让 Excel 自动计算公式
+  const newTag = `<c r="${ref}"${styleAttr}><f>${escXml(formula)}</f></c>`
   return xml.replace(oldTag, newTag)
 }
 
@@ -130,6 +131,26 @@ export default defineEventHandler(async (event) => {
         d = `${raw.getFullYear()}-${String(raw.getMonth() + 1).padStart(2, '0')}-${String(raw.getDate()).padStart(2, '0')}`
       } else { d = String(raw).slice(0, 10) }
       amap[r.person_id]![d] = Number(r.hours)
+    }
+
+    // ===== 查询工资表数据（按考勤表人员顺序）=====
+    let salaryRecords: any[] = []
+    if (personIds.length > 0) {
+      // 先查询所有工资数据
+      const allSalaryRecords = await query(
+        `SELECT sc.person_id, sc.work_days, sc.daily_salary, sc.net_salary,
+                p.name, p.id_card, p.phone, p.position, p.bank_name, p.bank_num, p.bank_code
+         FROM salary_compare sc
+         JOIN person p ON sc.person_id = p.id
+         WHERE sc.year = ? AND sc.month = ?`,
+        [y, m]
+      ) as any[]
+      
+      // 按考勤表人员顺序排序
+      const salaryMap = new Map(allSalaryRecords.map(r => [r.person_id, r]))
+      salaryRecords = personIds
+        .map(id => salaryMap.get(id))
+        .filter(Boolean) as any[]
     }
 
     // ===== Load template ZIP =====
@@ -254,6 +275,183 @@ export default defineEventHandler(async (event) => {
     }
 
     zip.file(sheetName, sheetXml)
+
+    // ===== 填充工资表sheet =====
+    // 列结构: A=序号, B=工种, C=姓名, D=身份证号, E=联系方式, F=开户行名称, G=工资银行账号, H=银行行号, I=用工天数, J=加班加点, K=实发工资金额, L=本人签字确认
+    const salarySheetName = 'xl/worksheets/sheet2.xml'
+    const salarySheetFile = zip.file(salarySheetName)
+    if (salarySheetFile && salaryRecords.length > 0) {
+      const salaryRaw = await salarySheetFile.async('nodebuffer') as Buffer
+      let salaryXml = salaryRaw.toString('utf-8')
+
+      // 更新标题行 (Row 1): 年月
+      salaryXml = setCell(salaryXml, 'A1', `${y}年${m}月农民工工资委托支付确认表`)
+
+      // 更新日期 (Row 2, K2): 当月最后一天的 Excel 序列号
+      // Excel 日期系统：1900-01-01 = 1, 需要计算从 1900-01-01 到目标日期的天数
+      const lastDate = new Date(y, m, 0).getDate()
+      const targetDate = new Date(y, m - 1, lastDate)
+      const excelEpoch = new Date(1900, 0, 1)
+      const daysDiff = Math.floor((targetDate.getTime() - excelEpoch.getTime()) / 86400000)
+      const excelSerial = daysDiff + 2 // +2: Excel 认为 1900-01-01 = 1，且有 1900-02-29 的 bug
+      salaryXml = setCell(salaryXml, 'K2', excelSerial)
+
+      const SALARY_DATA_ROWS = 20 // 模板中数据行数 (rows 4-23)
+      const TEMPLATE_FOOTER_START = 24 // 模板中小计行行号
+
+      // 提取模板中的签字区域行（第24-26行）
+      const footerRowXmls: string[] = []
+      for (let r = TEMPLATE_FOOTER_START; r <= TEMPLATE_FOOTER_START + 2; r++) {
+        const re = new RegExp(`<row r="${r}"[^>]*>[\\s\\S]*?<\\/row>`, 's')
+        const m = salaryXml.match(re)
+        if (m) footerRowXmls.push(m[0])
+      }
+
+      // 删除原有的签字区域行（第24-26行）
+      for (let r = TEMPLATE_FOOTER_START; r <= TEMPLATE_FOOTER_START + 2; r++) {
+        const re = new RegExp(`<row r="${r}"[^>]*>[\\s\\S]*?<\\/row>`, 's')
+        salaryXml = salaryXml.replace(re, '')
+      }
+
+      // 保存模板第4行作为新行的样式模板
+      const row4Match = salaryXml.match(/<row r="4"[^>]*>[\s\S]*?<\/row>/s)
+      const row4Template = row4Match ? row4Match[0] : ''
+
+      // 计算分组
+      const totalGroups = Math.ceil(salaryRecords.length / SALARY_DATA_ROWS)
+      
+      // 构建新的 sheetData 内容
+      // 保留前3行（标题、日期、表头）
+      const headerMatch = salaryXml.match(/<row r="[123]"[^>]*>[\s\S]*?<\/row>/g)
+      const headerXml = headerMatch ? headerMatch.join('') : ''
+      
+      // 删除原有的第4-23行
+      for (let r = 4; r <= 23; r++) {
+        const re = new RegExp(`<row r="${r}"[^>]*>[\\s\\S]*?<\\/row>`, 's')
+        salaryXml = salaryXml.replace(re, '')
+      }
+
+      // 构建数据行、小计行、合计行
+      let dataRowsXml = ''
+      let currentRowNum = 4
+      
+      for (let group = 0; group < totalGroups; group++) {
+        const groupRecords = salaryRecords.slice(group * SALARY_DATA_ROWS, (group + 1) * SALARY_DATA_ROWS)
+        let groupWorkDays = 0
+        let groupDailySalary = 0
+        let groupNetSalary = 0
+
+        // 添加数据行
+        for (let i = 0; i < groupRecords.length; i++) {
+          const record = groupRecords[i]
+          if (!record) continue
+
+          const workDays = Number(record.work_days) || 0
+          const dailySalary = Number(record.daily_salary) || 0
+          const netSalary = Number(record.net_salary) || 0
+          groupWorkDays += workDays
+          groupDailySalary += dailySalary
+          groupNetSalary += netSalary
+
+          // 创建新行（所有行都使用模板创建）
+          if (row4Template) {
+            let newRow = row4Template
+              .replace(/ r="4"/, ` r="${currentRowNum}"`)
+              .replace(/<c r="([A-Z]+)4"/g, (_, col) => `<c r="${col}${currentRowNum}"`)
+            // 设置单元格值
+            newRow = setCell(newRow, `A${currentRowNum}`, group * SALARY_DATA_ROWS + i + 1)
+            newRow = setCell(newRow, `B${currentRowNum}`, mapPosition(record.position) || '')
+            newRow = setCell(newRow, `C${currentRowNum}`, record.name || '')
+            newRow = setCell(newRow, `D${currentRowNum}`, record.id_card || '')
+            newRow = setCell(newRow, `E${currentRowNum}`, record.phone || '')
+            newRow = setCell(newRow, `F${currentRowNum}`, record.bank_name || '')
+            newRow = setCell(newRow, `G${currentRowNum}`, record.bank_num || '')
+            newRow = setCell(newRow, `H${currentRowNum}`, record.bank_code || '')
+            newRow = setCell(newRow, `I${currentRowNum}`, workDays)
+            newRow = setCell(newRow, `J${currentRowNum}`, null)
+            newRow = setCell(newRow, `K${currentRowNum}`, netSalary) // 实发工资金额
+            newRow = setCell(newRow, `L${currentRowNum}`, null) // 本人签字确认（留空）
+            dataRowsXml += newRow
+          }
+          currentRowNum++
+        }
+
+        // 添加小计行
+        if (row4Template) {
+          let subtotalRow = row4Template
+            .replace(/ r="4"/, ` r="${currentRowNum}"`)
+            .replace(/<c r="([A-Z]+)4"/g, (_, col) => `<c r="${col}${currentRowNum}"`)
+          subtotalRow = setCell(subtotalRow, `A${currentRowNum}`, '小计')
+          subtotalRow = setCell(subtotalRow, `B${currentRowNum}`, null)
+          subtotalRow = setCell(subtotalRow, `C${currentRowNum}`, null)
+          subtotalRow = setCell(subtotalRow, `D${currentRowNum}`, null)
+          subtotalRow = setCell(subtotalRow, `E${currentRowNum}`, null)
+          subtotalRow = setCell(subtotalRow, `F${currentRowNum}`, null)
+          subtotalRow = setCell(subtotalRow, `G${currentRowNum}`, null)
+          subtotalRow = setCell(subtotalRow, `H${currentRowNum}`, null)
+          subtotalRow = setCell(subtotalRow, `I${currentRowNum}`, groupWorkDays)
+          subtotalRow = setCell(subtotalRow, `J${currentRowNum}`, null)
+          subtotalRow = setCell(subtotalRow, `K${currentRowNum}`, groupNetSalary) // 实发工资金额小计
+          subtotalRow = setCell(subtotalRow, `L${currentRowNum}`, null) // 本人签字确认（留空）
+          dataRowsXml += subtotalRow
+        }
+        currentRowNum++
+      }
+
+      // 添加合计行
+      const totalRowNum = currentRowNum
+      const totalWorkDays = salaryRecords.reduce((sum, r) => sum + (Number(r.work_days) || 0), 0)
+      const totalNetSalary = salaryRecords.reduce((sum, r) => sum + (Number(r.net_salary) || 0), 0)
+
+      if (row4Template) {
+        let totalRow = row4Template
+          .replace(/ r="4"/, ` r="${totalRowNum}"`)
+          .replace(/<c r="([A-Z]+)4"/g, (_, col) => `<c r="${col}${totalRowNum}"`)
+        totalRow = setCell(totalRow, `A${totalRowNum}`, '合计')
+        totalRow = setCell(totalRow, `B${totalRowNum}`, null)
+        totalRow = setCell(totalRow, `C${totalRowNum}`, null)
+        totalRow = setCell(totalRow, `D${totalRowNum}`, null)
+        totalRow = setCell(totalRow, `E${totalRowNum}`, null)
+        totalRow = setCell(totalRow, `F${totalRowNum}`, null)
+        totalRow = setCell(totalRow, `G${totalRowNum}`, null)
+        totalRow = setCell(totalRow, `H${totalRowNum}`, null)
+        totalRow = setCell(totalRow, `I${totalRowNum}`, totalWorkDays)
+        totalRow = setCell(totalRow, `J${totalRowNum}`, null)
+        totalRow = setCell(totalRow, `K${totalRowNum}`, totalNetSalary) // 实发工资金额合计
+        totalRow = setCell(totalRow, `L${totalRowNum}`, null) // 本人签字确认（留空）
+        dataRowsXml += totalRow
+      }
+
+      // 重新构建 sheetData
+      const footerNewStart = totalRowNum + 1
+      let footerXml = ''
+      for (let i = 0; i < footerRowXmls.length; i++) {
+        const newRowNum = footerNewStart + i
+        const shiftedRow = footerRowXmls[i]!
+          .replace(/ r="\d+"/, ` r="${newRowNum}"`)
+          .replace(/<c r="([A-Z]+)\d+"/g, (_, col) => `<c r="${col}${newRowNum}"`)
+        footerXml += shiftedRow
+      }
+
+      // 替换整个 sheetData 内容
+      salaryXml = salaryXml.replace(
+        /<sheetData>[\s\S]*<\/sheetData>/,
+        `<sheetData>${headerXml}${dataRowsXml}${footerXml}</sheetData>`
+      )
+
+      zip.file(salarySheetName, salaryXml)
+    }
+
+    // 设置 workbook 在打开时自动重新计算所有公式
+    const workbookFile = zip.file('xl/workbook.xml')
+    if (workbookFile) {
+      const workbookXml = await workbookFile.async('string')
+      const updatedXml = workbookXml.replace(
+        /<calcPr([^>]*?)\/>/,
+        '<calcPr$1 fullCalcOnLoad="1"/>'
+      )
+      zip.file('xl/workbook.xml', updatedXml)
+    }
 
     const outBuffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
 

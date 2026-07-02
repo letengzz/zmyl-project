@@ -40,7 +40,7 @@
           <Upload class="w-4 h-4 mr-1" />
           导入初始考勤
         </Button>
-        <Button @click="exportOwner" variant="outline" size="sm">
+        <Button @click="exportOwner" variant="outline" size="sm" :disabled="!selectedPerson">
           <Download class="w-4 h-4 mr-1" />
           导出为业主考勤
         </Button>
@@ -82,37 +82,53 @@
       </div>
 
       <!-- 考勤汇总数据 -->
-      <div class="grid grid-cols-3 sm:grid-cols-7 gap-4 mb-6 p-4 bg-blue-50 rounded-lg">
-        <div class="text-center">
-          <div class="text-sm text-gray-600">考勤工时</div>
-          <div class="text-2xl font-bold text-primary">{{ summary.totalHours }}h</div>
-        </div>
-        <div class="text-center">
-          <div class="text-sm text-gray-600">考勤天数</div>
-          <div class="text-2xl font-bold" :class="diff.workDaysDiff ? 'text-red-600' : 'text-primary'">{{ summary.attendanceDays.toFixed(2) }}天</div>
-          <div v-if="diff.workDaysDiff" class="text-xs text-red-500">工资表: {{ salaryEntry?.workDays }}天</div>
-        </div>
-        <div class="text-center">
-          <div class="text-sm text-gray-600">考勤工资</div>
-          <div class="text-2xl font-bold" :class="diff.dailySalaryDiff ? 'text-red-600' : 'text-green-600'">{{ selectedPerson?.attendance_salary != null ? '¥' + selectedPerson.attendance_salary : '-' }}</div>
-          <div v-if="diff.dailySalaryDiff" class="text-xs text-red-500">工资表: ¥{{ salaryEntry?.dailySalary }}</div>
-        </div>
-        <div class="text-center">
-          <div class="text-sm text-gray-600">考勤收入</div>
-          <div class="text-2xl font-bold" :class="diff.netSalaryDiff ? 'text-red-600' : 'text-green-700'">{{ summary.attendanceIncome !== null ? '¥' + summary.attendanceIncome : '-' }}</div>
-          <div v-if="diff.netSalaryDiff" class="text-xs text-red-500">工资表: ¥{{ salaryEntry?.netSalary }}</div>
-        </div>
-        <div class="text-center">
-          <div class="text-sm text-gray-600">实际工资</div>
-          <div class="text-2xl font-bold text-orange-600">{{ selectedPerson?.actual_salary != null ? '¥' + selectedPerson.actual_salary : '-' }}</div>
-        </div>
-        <div class="text-center">
-          <div class="text-sm text-gray-600">实际收入</div>
-          <div class="text-2xl font-bold text-orange-700">{{ summary.actualIncome !== null ? '¥' + summary.actualIncome : '-' }}</div>
-        </div>
-        <div class="text-center">
-          <div class="text-sm text-gray-600">差额</div>
-          <div class="text-2xl font-bold" :class="summary.incomeDiff !== null ? (summary.incomeDiff > 0 ? 'text-green-600' : summary.incomeDiff < 0 ? 'text-red-600' : '') : ''">{{ summary.incomeDiff !== null ? '¥' + (summary.incomeDiff >= 0 ? '+' : '') + summary.incomeDiff : '-' }}</div>
+      <div class="mb-6">
+        <button
+          @click="showSummary = !showSummary"
+          class="flex items-center gap-2 w-full px-3 py-2 bg-blue-50 rounded-t-lg border border-blue-100 hover:bg-blue-100 transition-colors"
+          :class="showSummary ? 'rounded-b-none' : 'rounded-b-lg'"
+        >
+          <ChevronDown
+            class="w-4 h-4 transition-transform duration-200"
+            :class="showSummary ? '' : '-rotate-90'"
+          />
+          <span class="text-sm font-medium text-blue-800">考勤汇总数据</span>
+        </button>
+        <div
+          v-show="showSummary"
+          class="grid grid-cols-3 sm:grid-cols-7 gap-4 p-4 bg-blue-50 rounded-b-lg border border-t-0 border-blue-100"
+        >
+          <div class="text-center">
+            <div class="text-sm text-gray-600">考勤工时</div>
+            <div class="text-2xl font-bold text-primary">{{ summary.totalHours }}h</div>
+          </div>
+          <div class="text-center">
+            <div class="text-sm text-gray-600">考勤天数</div>
+            <div class="text-2xl font-bold" :class="diff.workDaysDiff ? 'text-red-600' : 'text-primary'">{{ summary.attendanceDays.toFixed(2) }}天</div>
+            <div v-if="diff.workDaysDiff" class="text-xs text-red-500">工资表: {{ salaryEntry?.workDays }}天</div>
+          </div>
+          <div class="text-center">
+            <div class="text-sm text-gray-600">考勤工资</div>
+            <div class="text-2xl font-bold" :class="diff.dailySalaryDiff ? 'text-red-600' : 'text-green-600'">{{ selectedPerson?.attendance_salary != null ? '¥' + selectedPerson.attendance_salary : '-' }}</div>
+            <div v-if="diff.dailySalaryDiff" class="text-xs text-red-500">工资表: ¥{{ salaryEntry?.dailySalary }}</div>
+          </div>
+          <div class="text-center">
+            <div class="text-sm text-gray-600">考勤收入</div>
+            <div class="text-2xl font-bold" :class="diff.netSalaryDiff ? 'text-red-600' : 'text-green-700'">{{ summary.attendanceIncome !== null ? '¥' + summary.attendanceIncome : '-' }}</div>
+            <div v-if="diff.netSalaryDiff" class="text-xs text-red-500">工资表: ¥{{ salaryEntry?.netSalary }}</div>
+          </div>
+          <div class="text-center">
+            <div class="text-sm text-gray-600">实际工资</div>
+            <div class="text-2xl font-bold text-orange-600">{{ selectedPerson?.actual_salary != null ? '¥' + selectedPerson.actual_salary : '-' }}</div>
+          </div>
+          <div class="text-center">
+            <div class="text-sm text-gray-600">实际收入</div>
+            <div class="text-2xl font-bold text-orange-700">{{ summary.actualIncome !== null ? '¥' + summary.actualIncome : '-' }}</div>
+          </div>
+          <div class="text-center">
+            <div class="text-sm text-gray-600">差额</div>
+            <div class="text-2xl font-bold" :class="summary.incomeDiff !== null ? (summary.incomeDiff > 0 ? 'text-green-600' : summary.incomeDiff < 0 ? 'text-red-600' : '') : ''">{{ summary.incomeDiff !== null ? '¥' + (summary.incomeDiff >= 0 ? '+' : '') + summary.incomeDiff : '-' }}</div>
+          </div>
         </div>
       </div>
 
@@ -255,7 +271,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted } from 'vue'
-import { ChevronLeft, ChevronRight, Upload, Download, AlertCircle } from '@lucide/vue'
+import { ChevronLeft, ChevronRight, ChevronDown, Upload, Download, AlertCircle } from '@lucide/vue'
 import {
   Dialog,
   DialogContent,
@@ -313,6 +329,7 @@ const currentIndex = ref(0)
 const showPersonDialog = ref(false)
 const personSearch = ref('')
 const personStatusFilter = ref<string>('all')
+const showSummary = ref(true)
 
 const personStatusTabs = [
   { label: '全部', value: 'all' },
