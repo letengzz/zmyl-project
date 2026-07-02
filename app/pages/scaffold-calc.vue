@@ -1276,6 +1276,7 @@ async function saveCommission() {
           is_approved: Number(commissionForm.is_approved),
           is_erected: Number(commissionForm.is_erected),
           applicant_unit: commissionForm.applicant_unit,
+          entry_time: commissionForm.entry_time,
           photo_urls: photoUrls,
           remark: commissionForm.remark
         }
