@@ -227,6 +227,7 @@ interface Person {
   location: number
   address: string
   entry_time: string
+  departure_time: string
   is_resign: number
   emer_person: string
   emer_phone: string
