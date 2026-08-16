@@ -2,7 +2,7 @@
   <Dialog :open="open" @update:open="onOpenChange">
     <DialogContent class="sm:max-w-[500px]">
       <DialogHeader>
-        <DialogTitle>恢复已删除人员到{{ location === 1 ? '一期' : '二期' }}</DialogTitle>
+        <DialogTitle>新增人员到{{ location === 1 ? '一期' : '二期' }}</DialogTitle>
       </DialogHeader>
       <div class="space-y-4">
         <div class="grid grid-cols-2 gap-3">
@@ -27,7 +27,7 @@
         </div>
         
         <div v-if="filteredPersons.length > 0" class="space-y-2">
-          <Label>已删除人员（共 {{ filteredPersons.length }} 人）</Label>
+          <Label>可选人员（共 {{ filteredPersons.length }} 人）</Label>
           <div class="max-h-[300px] overflow-y-auto border rounded-md p-2 space-y-1">
             <div
               v-for="person in filteredPersons"
@@ -39,13 +39,13 @@
                 <div class="font-medium">{{ person.name }}</div>
                 <div class="text-sm text-gray-500">{{ person.position }} · {{ person.phone }}</div>
               </div>
-              <Button size="sm" variant="outline">恢复</Button>
+              <Button size="sm" variant="outline">添加</Button>
             </div>
           </div>
         </div>
         
         <div v-else class="text-center py-8 text-gray-500">
-          没有已删除的人员可恢复
+          没有可添加的人员
         </div>
         
         <DialogFooter>
@@ -82,7 +82,7 @@ interface Person {
 const props = defineProps<{
   open: boolean
   location: number
-  deletedPersons?: Person[]
+  availablePersons?: Person[]
 }>()
 
 const emit = defineEmits<{
@@ -96,7 +96,7 @@ const searchName = ref('')
 const positionOptions = ['', '管理', '架工', '普工', '监护人', '资料员']
 
 const filteredPersons = computed(() => {
-  let result = props.deletedPersons || []
+  let result = props.availablePersons || []
   
   // 按职位筛选
   if (selectedPosition.value) {
