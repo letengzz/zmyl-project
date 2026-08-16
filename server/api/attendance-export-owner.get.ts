@@ -334,12 +334,11 @@ export default defineEventHandler(async (event) => {
       // 构建数据行、小计行、合计行
       let dataRowsXml = ''
       let currentRowNum = 4
+      const subtotalRowNums: number[] = [] // 记录每组小计行行号
       
       for (let group = 0; group < totalGroups; group++) {
         const groupRecords = salaryRecords.slice(group * SALARY_DATA_ROWS, (group + 1) * SALARY_DATA_ROWS)
-        let groupWorkDays = 0
-        let groupDailySalary = 0
-        let groupNetSalary = 0
+        const groupStartRow = currentRowNum // 本组数据起始行
 
         // 添加数据行
         for (let i = 0; i < groupRecords.length; i++) {
@@ -347,11 +346,7 @@ export default defineEventHandler(async (event) => {
           if (!record) continue
 
           const workDays = Number(record.work_days) || 0
-          const dailySalary = Number(record.daily_salary) || 0
           const netSalary = Number(record.net_salary) || 0
-          groupWorkDays += workDays
-          groupDailySalary += dailySalary
-          groupNetSalary += netSalary
 
           // 创建新行（所有行都使用模板创建）
           if (row4Template) {
@@ -376,7 +371,8 @@ export default defineEventHandler(async (event) => {
           currentRowNum++
         }
 
-        // 添加小计行
+        // 添加小计行（使用SUM公式）
+        const groupEndRow = currentRowNum - 1 // 本组数据结束行
         if (row4Template) {
           let subtotalRow = row4Template
             .replace(/ r="4"/, ` r="${currentRowNum}"`)
@@ -389,21 +385,24 @@ export default defineEventHandler(async (event) => {
           subtotalRow = setCell(subtotalRow, `F${currentRowNum}`, null)
           subtotalRow = setCell(subtotalRow, `G${currentRowNum}`, null)
           subtotalRow = setCell(subtotalRow, `H${currentRowNum}`, null)
-          subtotalRow = setCell(subtotalRow, `I${currentRowNum}`, groupWorkDays)
+          subtotalRow = setFormula(subtotalRow, `I${currentRowNum}`, `SUM(I${groupStartRow}:I${groupEndRow})`)
           subtotalRow = setCell(subtotalRow, `J${currentRowNum}`, null)
-          subtotalRow = setCell(subtotalRow, `K${currentRowNum}`, groupNetSalary) // 实发工资金额小计
+          subtotalRow = setFormula(subtotalRow, `K${currentRowNum}`, `SUM(K${groupStartRow}:K${groupEndRow})`)
           subtotalRow = setCell(subtotalRow, `L${currentRowNum}`, null) // 本人签字确认（留空）
           dataRowsXml += subtotalRow
         }
+        subtotalRowNums.push(currentRowNum)
         currentRowNum++
       }
 
-      // 添加合计行
+      // 添加合计行（使用SUM公式汇总所有小计行）
       const totalRowNum = currentRowNum
-      const totalWorkDays = salaryRecords.reduce((sum, r) => sum + (Number(r.work_days) || 0), 0)
-      const totalNetSalary = salaryRecords.reduce((sum, r) => sum + (Number(r.net_salary) || 0), 0)
 
       if (row4Template) {
+        // 构建合计公式：将所有小计行相加
+        const subtotalRefs = subtotalRowNums.map(r => `I${r}`).join('+')
+        const subtotalRefsK = subtotalRowNums.map(r => `K${r}`).join('+')
+
         let totalRow = row4Template
           .replace(/ r="4"/, ` r="${totalRowNum}"`)
           .replace(/<c r="([A-Z]+)4"/g, (_, col) => `<c r="${col}${totalRowNum}"`)
@@ -415,9 +414,9 @@ export default defineEventHandler(async (event) => {
         totalRow = setCell(totalRow, `F${totalRowNum}`, null)
         totalRow = setCell(totalRow, `G${totalRowNum}`, null)
         totalRow = setCell(totalRow, `H${totalRowNum}`, null)
-        totalRow = setCell(totalRow, `I${totalRowNum}`, totalWorkDays)
+        totalRow = setFormula(totalRow, `I${totalRowNum}`, subtotalRefs)
         totalRow = setCell(totalRow, `J${totalRowNum}`, null)
-        totalRow = setCell(totalRow, `K${totalRowNum}`, totalNetSalary) // 实发工资金额合计
+        totalRow = setFormula(totalRow, `K${totalRowNum}`, subtotalRefsK)
         totalRow = setCell(totalRow, `L${totalRowNum}`, null) // 本人签字确认（留空）
         dataRowsXml += totalRow
       }

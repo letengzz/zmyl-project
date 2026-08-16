@@ -88,6 +88,15 @@ export default defineEventHandler(async (event) => {
 
       // 解析每天的工时（列索引3到33，对应1日到31日）
       const daysInMonth = new Date(year, month, 0).getDate()
+
+      // 先删除该人员当月的旧考勤数据
+      const startDate = `${year}-${String(month).padStart(2, '0')}-01`
+      const endDate = `${year}-${String(month).padStart(2, '0')}-${daysInMonth}`
+      await query(
+        `DELETE FROM attendance WHERE person_id = ? AND attendance_date >= ? AND attendance_date <= ?`,
+        [person.id, startDate, endDate]
+      )
+
       for (let d = 0; d < daysInMonth; d++) {
         const colIndex = 3 + d
         const cellValue = row[colIndex]
@@ -100,8 +109,7 @@ export default defineEventHandler(async (event) => {
         try {
           await query(
             `INSERT INTO attendance (person_id, attendance_date, hours) 
-             VALUES (?, ?, ?) 
-             ON DUPLICATE KEY UPDATE hours = VALUES(hours), updated_at = CURRENT_TIMESTAMP`,
+             VALUES (?, ?, ?)`,
             [person.id, dateStr, hours]
           )
           recordCount++

@@ -109,7 +109,7 @@
         </div>
       </div>
     </div>    
-    <AddPersonDialog v-model:open="showAddDialog" :location="addLocation" :deleted-persons="getDeletedPersons()" @success="fetchPersons" @add="handleAddPerson" />
+    <AddPersonDialog v-model:open="showAddDialog" :location="addLocation" :available-persons="getAvailablePersons(addTargetTaskIndex, addLocation)" @success="fetchPersons" @add="handleAddPerson" />
     <ExportDialog v-model:open="showExportDialog" :persons="getExportTaskPersons()" 
       :work-location="getExportTaskData()?.workLocation || ''" 
       :work-content="getExportTaskData()?.workContent || ''" 
@@ -169,14 +169,16 @@ const deletePersonId = ref<number | null>(null); const deletePersonName = ref(''
 const deletePersonLocation = ref<number>(1); const deletePersonTaskIndex = ref<number>(0)
 const saveResultMessage = ref(''); const saveResultSuccess = ref(true)
 
-const defaultLocation2 = '压缩区、205管桥、碱洗区、202管桥、204管廊、构-205、热区、构-216、构-206、构-203'
+const defaultLocation1 = '无'
+const defaultContent1 = '无'
+const defaultLocation2 = '碱洗区、压缩区、乙烯区、冷区、热区、丙烯区'
 const defaultContent2 = '搭设脚手架、拆除脚手架'
 
 function createDefaultTask(location: number): OvertimeTaskData {
   return {
     startTime: '18:00', endTime: '',
-    workLocation: location === 2 ? defaultLocation2 : '',
-    workContent: location === 2 ? defaultContent2 : '',
+    workLocation: location === 2 ? defaultLocation2 : defaultLocation1,
+    workContent: location === 2 ? defaultContent2 : defaultContent1,
     persons: [], saving: false
   }
 }
@@ -185,7 +187,7 @@ const overtimeTasks1 = ref<OvertimeTaskData[]>([createDefaultTask(1)])
 const overtimeTasks2 = ref<OvertimeTaskData[]>([createDefaultTask(2)])
 const timeOptions = computed(() => {
   const options: string[] = []
-  for (let h = 18; h < 24; h++) { options.push(`${String(h).padStart(2, '0')}:00`); options.push(`${String(h).padStart(2, '0')}:30`) }
+  for (let h = 8; h < 24; h++) { options.push(`${String(h).padStart(2, '0')}:00`); options.push(`${String(h).padStart(2, '0')}:30`) }
   return options
 })
 
@@ -262,6 +264,13 @@ function getExportTaskData(): OvertimeTaskData | null {
 function getExportTaskPersons(): Person[] {
   const task = getExportTaskData()
   return task ? task.persons : []
+}
+
+function getAvailablePersons(taskIndex: number, location: number): Person[] {
+  const tasks = location === 1 ? overtimeTasks1.value : overtimeTasks2.value
+  const task = tasks[taskIndex]
+  const existingIds = new Set<number>(task?.persons.map(p => p.id) || [])
+  return allPersons.value.filter(p => !existingIds.has(p.id) && p.is_resign === 0)
 }
 
 function getDeletedPersons(): Person[] {

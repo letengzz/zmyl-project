@@ -216,6 +216,100 @@
       </div>
     </div>
 
+    <!-- 笔记 -->
+    <div v-if="activeTab === 'notes'" class="bg-white rounded-xl shadow-sm border border-gray-200 flex" style="height: calc(100vh - 200px); min-height: 500px;">
+      <!-- 左侧列表 -->
+      <div class="w-64 border-r border-gray-200 flex flex-col flex-shrink-0">
+        <div class="p-3 border-b border-gray-100">
+          <Button @click="createNote" class="w-full gap-1" size="sm">
+            <Plus class="w-4 h-4" />
+            新建笔记
+          </Button>
+        </div>
+        <div class="flex-1 overflow-y-auto">
+          <div
+            v-for="note in notes"
+            :key="note.id"
+            @click="selectNote(note)"
+            class="px-3 py-3 cursor-pointer border-b border-gray-50 transition-colors"
+            :class="selectedNote?.id === note.id ? 'bg-blue-50 border-l-2 border-l-primary' : 'hover:bg-gray-50 border-l-2 border-l-transparent'"
+          >
+            <div class="text-sm font-medium text-gray-800 truncate">{{ note.title || '无标题' }}</div>
+            <div class="text-xs text-gray-400 mt-1">{{ formatNoteDate(note.updated_at) }}</div>
+          </div>
+          <div v-if="notes.length === 0" class="p-6 text-center text-sm text-gray-400">
+            暂无笔记，点击上方按钮创建
+          </div>
+        </div>
+      </div>
+
+      <!-- 右侧编辑区 -->
+      <div class="flex-1 flex flex-col min-w-0" v-if="selectedNote">
+        <!-- 工具栏 -->
+        <div class="flex items-center gap-2 px-4 py-2 border-b border-gray-100">
+          <Input
+            v-model="editingTitle"
+            placeholder="笔记标题"
+            class="flex-1 border-none shadow-none text-base font-medium focus-visible:ring-0 px-0"
+          />
+          <Button
+            @click="isPreview = !isPreview"
+            variant="ghost"
+            size="sm"
+            :class="isPreview ? 'text-blue-600' : ''"
+          >
+            <Eye v-if="!isPreview" class="w-4 h-4" />
+            <Edit3 v-else class="w-4 h-4" />
+            {{ isPreview ? '编辑' : '预览' }}
+          </Button>
+          <Button @click="saveNote" size="sm" class="gap-1">
+            <Save class="w-4 h-4" />
+            保存
+          </Button>
+          <Button @click="deleteCurrentNote" variant="ghost" size="sm" class="text-red-500 hover:text-red-600">
+            <Trash2 class="w-4 h-4" />
+          </Button>
+        </div>
+
+        <!-- 编辑/预览区 -->
+        <div class="flex-1 overflow-hidden" v-if="isPreview">
+          <div
+            class="prose prose-sm max-w-none p-6 overflow-y-auto h-full"
+            v-html="renderedMarkdown"
+          ></div>
+        </div>
+        <div v-else class="flex-1 flex flex-col min-h-0">
+          <!-- Markdown 格式工具栏 -->
+          <div class="flex items-center gap-0.5 px-4 py-1.5 border-b border-gray-100 bg-gray-50 flex-wrap">
+            <button
+              v-for="btn in formatButtons"
+              :key="btn.label"
+              @click="insertMarkdown(btn.before, btn.after, btn.placeholder)"
+              class="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
+              :title="btn.label"
+            >
+              <component :is="btn.icon" class="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <textarea
+            ref="textareaRef"
+            v-model="editingContent"
+            placeholder="支持 Markdown 格式..."
+            class="flex-1 p-6 resize-none border-none focus:outline-none text-sm font-mono leading-relaxed"
+            @keydown.tab.prevent="insertMarkdown('\t', '', '')"
+          ></textarea>
+        </div>
+      </div>
+
+      <!-- 未选中笔记时的提示 -->
+      <div v-else class="flex-1 flex items-center justify-center text-gray-400">
+        <div class="text-center">
+          <StickyNote class="w-12 h-12 mx-auto mb-3 opacity-30" />
+          <p>选择一个笔记 或 创建新笔记</p>
+        </div>
+      </div>
+    </div>
+
     <!-- 复制提示 -->
     <div
       v-if="showCopyToast"
@@ -227,12 +321,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { Banknote, GitCompare, Copy, Calculator, ArrowRightLeft } from '@lucide/vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { Banknote, GitCompare, Copy, StickyNote, Plus, Trash2, Edit3, Eye, Save, Bold, Italic, Strikethrough, Heading1, Heading2, List, ListOrdered, Quote, Code2, Link, Image, Table, Minus } from '@lucide/vue'
+import { marked } from 'marked'
 
 const tabs = [
   { id: 'rmb', label: '人民币转大写', icon: Banknote },
   { id: 'compare', label: '内容对比', icon: GitCompare },
+  { id: 'notes', label: '笔记', icon: StickyNote },
 ]
 
 const activeTab = ref('rmb')
@@ -381,6 +477,158 @@ function compareContent() {
 
   compareResult.value = { same, leftOnly, rightOnly }
 }
+
+// ==================== 笔记 ====================
+interface Note {
+  id: number
+  title: string
+  content: string
+  created_at: string
+  updated_at: string
+}
+
+const notes = ref<Note[]>([])
+const selectedNote = ref<Note | null>(null)
+const editingTitle = ref('')
+const editingContent = ref('')
+const isPreview = ref(false)
+const textareaRef = ref<HTMLTextAreaElement | null>(null)
+
+const formatButtons = [
+  { label: '粗体', icon: Bold, before: '**', after: '**', placeholder: '粗体文字' },
+  { label: '斜体', icon: Italic, before: '*', after: '*', placeholder: '斜体文字' },
+  { label: '删除线', icon: Strikethrough, before: '~~', after: '~~', placeholder: '删除文字' },
+  { label: '标题1', icon: Heading1, before: '# ', after: '', placeholder: '' },
+  { label: '标题2', icon: Heading2, before: '## ', after: '', placeholder: '' },
+  { label: '无序列表', icon: List, before: '- ', after: '', placeholder: '' },
+  { label: '有序列表', icon: ListOrdered, before: '1. ', after: '', placeholder: '' },
+  { label: '引用', icon: Quote, before: '> ', after: '', placeholder: '' },
+  { label: '行内代码', icon: Code2, before: '`', after: '`', placeholder: 'code' },
+  { label: '链接', icon: Link, before: '[', after: '](url)', placeholder: '链接文字' },
+  { label: '图片', icon: Image, before: '![', after: '](url)', placeholder: '图片描述' },
+  { label: '表格', icon: Table, before: '| 列1 | 列2 |\n| --- | --- |\n| ', after: ' |\n', placeholder: '内容' },
+  { label: '分割线', icon: Minus, before: '\n---\n', after: '', placeholder: '' },
+]
+
+function insertMarkdown(before: string, after: string, placeholder: string) {
+  const textarea = textareaRef.value
+  if (!textarea) return
+
+  const start = textarea.selectionStart
+  const end = textarea.selectionEnd
+  const selectedText = editingContent.value.substring(start, end)
+
+  const insertText = selectedText || placeholder
+  const newText = before + insertText + after
+
+  editingContent.value = editingContent.value.substring(0, start) + newText + editingContent.value.substring(end)
+
+  nextTick(() => {
+    const newCursorPos = start + before.length + insertText.length + after.length
+    textarea.setSelectionRange(newCursorPos, newCursorPos)
+    textarea.focus()
+  })
+}
+
+const renderedMarkdown = computed(() => {
+  if (!editingContent.value) return '<p class="text-gray-400">暂无内容</p>'
+  return marked.parse(editingContent.value) as string
+})
+
+async function fetchNotes() {
+  try {
+    const res = await $fetch('/api/notes')
+    if ((res as any).success) {
+      notes.value = (res as any).data
+    }
+  } catch (e) {
+    console.error('获取笔记失败:', e)
+  }
+}
+
+async function createNote() {
+  try {
+    const res = await $fetch('/api/notes', {
+      method: 'POST',
+      body: { title: '新建笔记', content: '' }
+    })
+    if ((res as any).success) {
+      await fetchNotes()
+      // 选中新建的笔记
+      const newId = (res as any).data.id
+      const found = notes.value.find(n => n.id === newId)
+      if (found) selectNote(found)
+    }
+  } catch (e) {
+    console.error('创建笔记失败:', e)
+  }
+}
+
+function selectNote(note: Note) {
+  selectedNote.value = note
+  editingTitle.value = note.title
+  editingContent.value = note.content || ''
+  isPreview.value = false
+}
+
+async function saveNote() {
+  if (!selectedNote.value) return
+  try {
+    await $fetch(`/api/notes/${selectedNote.value.id}`, {
+      method: 'PUT',
+      body: { title: editingTitle.value, content: editingContent.value }
+    })
+    // 更新本地状态
+    selectedNote.value.title = editingTitle.value
+    selectedNote.value.content = editingContent.value
+    selectedNote.value.updated_at = new Date().toISOString()
+    // 重新排序列表
+    const idx = notes.value.findIndex(n => n.id === selectedNote.value!.id)
+    if (idx > -1) {
+      notes.value[idx]!.title = editingTitle.value
+      notes.value[idx]!.updated_at = selectedNote.value.updated_at
+      notes.value.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    }
+  } catch (e) {
+    console.error('保存笔记失败:', e)
+  }
+}
+
+async function deleteCurrentNote() {
+  if (!selectedNote.value) return
+  if (!confirm('确定删除这条笔记吗？')) return
+  try {
+    await $fetch(`/api/notes/${selectedNote.value.id}`, { method: 'DELETE' })
+    const id = selectedNote.value.id
+    selectedNote.value = null
+    notes.value = notes.value.filter(n => n.id !== id)
+  } catch (e) {
+    console.error('删除笔记失败:', e)
+  }
+}
+
+function formatNoteDate(dateStr: string): string {
+  if (!dateStr) return ''
+  const d = new Date(dateStr)
+  const now = new Date()
+  const diff = now.getTime() - d.getTime()
+  if (diff < 86400000) {
+    return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  }
+  if (diff < 604800000) {
+    const days = ['日', '一', '二', '三', '四', '五', '六']
+    return '周' + days[d.getDay()]
+  }
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// 初始化加载笔记
+onMounted(() => {
+  if (activeTab.value === 'notes') fetchNotes()
+})
+watch(activeTab, (val) => {
+  if (val === 'notes') fetchNotes()
+})
 
 // ==================== 通用功能 ====================
 const showCopyToast = ref(false)

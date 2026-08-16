@@ -372,7 +372,7 @@ export default defineEventHandler(async (event) => {
     const outBuffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
 
     event.node.res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    const fileName = `${y}年${m}月份农民工考勤表-代发.xlsx`
+    const fileName = `${y}年${m}月份农民工考勤表、工资表-架设队.xlsx`
     event.node.res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`)
     event.node.res.end(outBuffer)
     return null
