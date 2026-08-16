@@ -39,7 +39,7 @@
 </template>
 
 <script setup lang="ts">
-import { Users, CalendarClock, Clock, Calculator, Building2, Wrench, Home } from '@lucide/vue'
+import { Users, CalendarClock, Clock, Calculator, Building2, Wrench, Home, ClipboardCheck } from '@lucide/vue'
 
 const route = useRoute()
 
@@ -49,6 +49,7 @@ const navItems = [
   { to: '/overtime', label: '加班管理', icon: Clock },
   { to: '/attendance', label: '考勤管理', icon: CalendarClock },
   { to: '/scaffold-calc', label: '脚手架管理', icon: Calculator },
+  { to: '/work-ticket', label: '作业票管理', icon: ClipboardCheck },
   { to: '/tools', label: '工具箱', icon: Wrench },
 ]
 
