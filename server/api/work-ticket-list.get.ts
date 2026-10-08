@@ -26,6 +26,25 @@ export default defineEventHandler(async (event) => {
       `)
     }
 
+    // 检查高处/脚手架/受限空间作业票PDF列（每种分为 JSA交底 + 交底）是否存在，不存在则添加
+    const pdfColumnDefs = [
+      ['height_jsa_pdf', '高处作业票-JSA交底PDF文件路径'],
+      ['height_analysis_pdf', '高处作业票-交底PDF文件路径'],
+      ['scaffold_jsa_pdf', '脚手架作业票-JSA交底PDF文件路径'],
+      ['scaffold_analysis_pdf', '脚手架作业票-交底PDF文件路径'],
+      ['confined_jsa_pdf', '受限空间作业票-JSA交底PDF文件路径'],
+      ['confined_analysis_pdf', '受限空间作业票-交底PDF文件路径']
+    ] as const
+    const pdfColumns = await query(
+      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'work_ticket' AND COLUMN_NAME IN ('height_jsa_pdf', 'height_analysis_pdf', 'scaffold_jsa_pdf', 'scaffold_analysis_pdf', 'confined_jsa_pdf', 'confined_analysis_pdf')"
+    ) as any[]
+    const pdfColumnNames = new Set(pdfColumns.map(c => c.COLUMN_NAME))
+    for (const [col, comment] of pdfColumnDefs) {
+      if (!pdfColumnNames.has(col)) {
+        await query(`ALTER TABLE work_ticket ADD COLUMN ${col} VARCHAR(255) DEFAULT NULL COMMENT '${comment}'`)
+      }
+    }
+
     const { search, weekly_invoice_day, is_enabled, page, pageSize } = getQuery(event) as { search?: string; weekly_invoice_day?: string; is_enabled?: string; page?: string; pageSize?: string }
     
     const currentPage = Math.max(1, parseInt(page || '1'))

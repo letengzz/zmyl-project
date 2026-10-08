@@ -52,6 +52,14 @@ export default defineEventHandler(async (event) => {
     const year = parseInt(match[1]!)
     const month = parseInt(match[2]!)
 
+    // 检查 punch_seq 列是否存在，不存在则添加（记录初始考勤报表中的人员顺序）
+    const punchSeqColumns = await query(
+      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'attendance' AND COLUMN_NAME = 'punch_seq'"
+    ) as any[]
+    if (punchSeqColumns.length === 0) {
+      await query(`ALTER TABLE attendance ADD COLUMN punch_seq INT DEFAULT NULL COMMENT '初始考勤报表人员顺序'`)
+    }
+
     // 表头在第4行（索引3），确认列结构
     const headers = data[3] as string[]
     // 列: 0=工种, 1=姓名, 2=身份证, 3-33=1日到31日, 34=合计, 35=签字确认
@@ -89,12 +97,18 @@ export default defineEventHandler(async (event) => {
       // 解析每天的工时（列索引3到33，对应1日到31日）
       const daysInMonth = new Date(year, month, 0).getDate()
 
-      // 先删除该人员当月的旧考勤数据
+      // 先清空该人员当月的导入工时（保留手动录入的 manual_hours）
       const startDate = `${year}-${String(month).padStart(2, '0')}-01`
       const endDate = `${year}-${String(month).padStart(2, '0')}-${daysInMonth}`
       await query(
-        `DELETE FROM attendance WHERE person_id = ? AND attendance_date >= ? AND attendance_date <= ?`,
+        `UPDATE attendance SET hours = 0 WHERE person_id = ? AND attendance_date >= ? AND attendance_date <= ?`,
         [person.id, startDate, endDate]
+      )
+
+      // 记录该人员在初始考勤报表中的顺序（punch_seq），供人员列表与导出按此排序
+      await query(
+        `UPDATE attendance SET punch_seq = ? WHERE person_id = ? AND attendance_date >= ? AND attendance_date <= ?`,
+        [i - 4, person.id, startDate, endDate]
       )
 
       for (let d = 0; d < daysInMonth; d++) {
@@ -109,7 +123,8 @@ export default defineEventHandler(async (event) => {
         try {
           await query(
             `INSERT INTO attendance (person_id, attendance_date, hours) 
-             VALUES (?, ?, ?)`,
+             VALUES (?, ?, ?)
+             ON DUPLICATE KEY UPDATE hours = VALUES(hours), updated_at = CURRENT_TIMESTAMP`,
             [person.id, dateStr, hours]
           )
           recordCount++

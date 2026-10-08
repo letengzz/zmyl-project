@@ -1,0 +1,22 @@
+-- 物资管理模块：物资表 + 出场物资记录表
+-- 注意：material-list.get.ts 接口会自动检测并创建表，此文件仅作为记录
+CREATE TABLE IF NOT EXISTS material (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(100) NOT NULL COMMENT '物资名称',
+  spec VARCHAR(200) DEFAULT NULL COMMENT '规格',
+  total_quantity INT NOT NULL DEFAULT 0 COMMENT '总数量',
+  remark VARCHAR(500) DEFAULT NULL COMMENT '备注',
+  is_deleted TINYINT(1) DEFAULT 0 COMMENT '是否删除 0-否 1-是',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='物资管理表';
+
+CREATE TABLE IF NOT EXISTS material_dispatch (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  material_id INT NOT NULL COMMENT '物资ID',
+  quantity INT NOT NULL COMMENT '出场数量',
+  dispatch_date DATE NOT NULL COMMENT '出场日期',
+  remark VARCHAR(500) DEFAULT NULL COMMENT '备注',
+  is_deleted TINYINT(1) DEFAULT 0 COMMENT '是否删除 0-否 1-是',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='出场物资记录表';

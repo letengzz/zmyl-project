@@ -37,6 +37,10 @@
             class="w-56"
             @input="debouncedFetch"
           />
+          <Button @click="openBatchDialog" variant="outline" :disabled="!selectedItems.length" title="批量打印勾选作业票的PDF">
+            <Printer class="w-4 h-4 mr-1" />
+            批量打印{{ selectedItems.length ? `（${selectedItems.length}）` : '' }}
+          </Button>
           <Button @click="openAddDialog" class="bg-primary text-white">
             <Plus class="w-4 h-4 mr-1" />
             新增作业票
@@ -48,6 +52,16 @@
         <table class="w-full text-sm">
           <thead class="bg-gray-100 border-b">
             <tr>
+              <th class="px-4 py-3 w-10">
+                <input
+                  type="checkbox"
+                  class="w-4 h-4 accent-primary cursor-pointer align-middle"
+                  :checked="isAllSelected"
+                  :indeterminate.prop="isPartialSelected"
+                  @change="toggleSelectAll"
+                  title="全选本页"
+                />
+              </th>
               <th class="px-4 py-3 text-left font-medium text-gray-700">编号</th>
               <th class="px-4 py-3 text-left font-medium text-gray-700">作业位置</th>
               <th class="px-4 py-3 text-left font-medium text-gray-700">每周开票时间</th>
@@ -60,9 +74,17 @@
           </thead>
           <tbody class="divide-y">
             <tr v-if="list.length === 0">
-              <td colspan="8" class="px-4 py-8 text-center text-gray-500">暂无数据</td>
+              <td colspan="9" class="px-4 py-8 text-center text-gray-500">暂无数据</td>
             </tr>
             <tr v-for="item in list" :key="item.id" class="hover:bg-gray-50">
+              <td class="px-4 py-3 w-10">
+                <input
+                  type="checkbox"
+                  class="w-4 h-4 accent-primary cursor-pointer align-middle"
+                  :checked="isSelected(item)"
+                  @change="toggleSelect(item)"
+                />
+              </td>
               <td class="px-4 py-3 font-medium">{{ item.ticket_no || '-' }}</td>
               <td class="px-4 py-3">{{ item.work_location }}</td>
               <td class="px-4 py-3">
@@ -91,24 +113,40 @@
               <td class="px-4 py-3">{{ item.approver || '-' }}</td>
               <td class="px-4 py-3 text-gray-500 max-w-[150px] truncate" :title="item.remark ?? undefined">{{ item.remark || '-' }}</td>
               <td class="px-4 py-3">
-                <div class="flex gap-1">
-                  <Button 
-                    @click="openEditDialog(item)" 
-                    variant="outline" 
-                    size="sm" 
-                    class="h-7 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                  >
-                    <Pencil class="w-3 h-3 mr-1" />
-                    编辑
-                  </Button>
-                  <Button 
-                    @click="openDeleteDialog(item)" 
-                    variant="outline" 
-                    size="sm" 
-                    class="h-7 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
-                  >
-                    删除
-                  </Button>
+                <div class="space-y-1">
+                  <div class="flex gap-1">
+                    <Button 
+                      @click="openEditDialog(item)" 
+                      variant="outline" 
+                      size="sm" 
+                      class="h-7 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                    >
+                      <Pencil class="w-3 h-3 mr-1" />
+                      编辑
+                    </Button>
+                    <Button 
+                      @click="openDeleteDialog(item)" 
+                      variant="outline" 
+                      size="sm" 
+                      class="h-7 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                    >
+                      删除
+                    </Button>
+                  </div>
+                  <div class="flex flex-wrap gap-1">
+                    <Button
+                      v-for="slot in pdfSlots"
+                      :key="slot.type"
+                      @click="printTicket(item, slot)"
+                      variant="outline"
+                      size="sm"
+                      :title="`打印${slot.label}（${slot.duplex === 'long' ? '双面长边' : '双面短边'}）`"
+                      :class="['h-7 text-xs', item[slot.field] ? slot.activeClass : 'text-gray-400 hover:text-gray-500 hover:bg-gray-50']"
+                    >
+                      <Printer class="w-3 h-3 mr-1" />
+                      {{ slot.shortLabel }}
+                    </Button>
+                  </div>
                 </div>
               </td>
             </tr>
@@ -119,23 +157,36 @@
       <!-- 总条数与分页 -->
       <div class="flex items-center justify-between mt-4 pt-4 border-t">
         <div class="text-sm text-gray-600">共 <span class="font-medium text-gray-900">{{ pagination.total }}</span> 条记录</div>
-        <div v-if="pagination.totalPages > 1" class="flex items-center gap-2">
-          <span class="text-sm text-gray-500">第 {{ pagination.page }} / {{ pagination.totalPages }} 页</span>
-          <Button @click="changePage(1)" :disabled="pagination.page <= 1" variant="outline" size="sm">首页</Button>
-          <Button @click="changePage(pagination.page - 1)" :disabled="pagination.page <= 1" variant="outline" size="sm">上一页</Button>
-          <Button @click="changePage(pagination.page + 1)" :disabled="pagination.page >= pagination.totalPages" variant="outline" size="sm">下一页</Button>
-          <Button @click="changePage(pagination.totalPages)" :disabled="pagination.page >= pagination.totalPages" variant="outline" size="sm">末页</Button>
+        <div class="flex items-center gap-2">
+          <Select :model-value="String(pagination.pageSize)" @update:model-value="onPageSizeChange">
+            <SelectTrigger class="w-28 h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="10">10 条/页</SelectItem>
+              <SelectItem value="20">20 条/页</SelectItem>
+              <SelectItem value="50">50 条/页</SelectItem>
+              <SelectItem value="100">100 条/页</SelectItem>
+            </SelectContent>
+          </Select>
+          <template v-if="pagination.totalPages > 1">
+            <span class="text-sm text-gray-500">第 {{ pagination.page }} / {{ pagination.totalPages }} 页</span>
+            <Button @click="changePage(1)" :disabled="pagination.page <= 1" variant="outline" size="sm">首页</Button>
+            <Button @click="changePage(pagination.page - 1)" :disabled="pagination.page <= 1" variant="outline" size="sm">上一页</Button>
+            <Button @click="changePage(pagination.page + 1)" :disabled="pagination.page >= pagination.totalPages" variant="outline" size="sm">下一页</Button>
+            <Button @click="changePage(pagination.totalPages)" :disabled="pagination.page >= pagination.totalPages" variant="outline" size="sm">末页</Button>
+          </template>
         </div>
       </div>
     </div>
 
     <!-- 新增/编辑对话框 -->
     <Dialog v-model:open="showFormDialog">
-      <DialogContent class="sm:max-w-lg">
-        <DialogHeader>
+      <DialogContent class="sm:max-w-lg max-h-[90vh] flex flex-col">
+        <DialogHeader class="shrink-0">
           <DialogTitle>{{ editingItem ? '编辑作业票' : '新增作业票' }}</DialogTitle>
         </DialogHeader>
-        <div class="space-y-4 py-4">
+        <div class="space-y-4 py-4 overflow-y-auto flex-1 min-h-0">
           <div class="space-y-2">
             <Label>编号</Label>
             <Input v-model="form.ticket_no" placeholder="请输入编号" />
@@ -189,9 +240,32 @@
             <Label>备注</Label>
             <Input v-model="form.remark" placeholder="备注信息（选填）" />
           </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div v-for="slot in pdfSlots" :key="slot.type" class="space-y-2">
+              <Label>{{ slot.label }}</Label>
+              <div v-if="editingItem" class="flex items-center gap-2 h-9">
+                <span class="text-xs" :class="editingItem[slot.field] ? 'text-green-600' : 'text-gray-400'">
+                  {{ editingItem[slot.field] ? '已上传' : '未上传' }}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  class="h-7 text-xs"
+                  :disabled="uploadingType === slot.type"
+                  @click="triggerPdfInput(slot.type)"
+                >
+                  <Upload class="w-3 h-3 mr-1" />
+                  {{ uploadingType === slot.type ? '上传中...' : (editingItem[slot.field] ? '重新上传' : '上传') }}
+                </Button>
+              </div>
+              <p v-else class="text-xs text-gray-400 h-9 flex items-center">保存后可上传</p>
+            </div>
+          </div>
+          <input ref="pdfFileInput" type="file" accept="application/pdf,.pdf" class="hidden" @change="onPdfSelected">
           <div v-if="formError" class="text-sm text-red-600">{{ formError }}</div>
         </div>
-        <DialogFooter>
+        <DialogFooter class="shrink-0">
           <Button @click="showFormDialog = false" variant="outline">取消</Button>
           <Button @click="saveForm" class="bg-primary text-white" :disabled="saving">
             {{ saving ? '保存中...' : '保存' }}
@@ -217,6 +291,43 @@
       </DialogContent>
     </Dialog>
 
+    <!-- 批量打印对话框 -->
+    <Dialog v-model:open="showBatchDialog">
+      <DialogContent class="sm:max-w-md max-h-[90vh] flex flex-col">
+        <DialogHeader class="shrink-0">
+          <DialogTitle>批量打印</DialogTitle>
+        </DialogHeader>
+        <div class="space-y-4 py-4 overflow-y-auto flex-1 min-h-0">
+          <p class="text-sm text-gray-600">已选 <strong>{{ selectedItems.length }}</strong> 张作业票，勾选要打印的 PDF：</p>
+          <div class="space-y-2">
+            <label v-for="slot in pdfSlots" :key="slot.type" class="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                class="w-4 h-4 accent-primary"
+                :checked="batchTypes.includes(slot.type)"
+                @change="toggleBatchType(slot.type)"
+              />
+              <span>{{ slot.label }}</span>
+              <span class="text-xs text-gray-400">（{{ slot.duplex === 'long' ? '双面长边' : '双面短边' }}，已上传 {{ countUploaded(slot.field) }} 份）</span>
+            </label>
+          </div>
+          <p class="text-sm text-gray-600">
+            共 <strong>{{ batchStats.total }}</strong> 份 PDF 将合并打印
+            <span v-if="batchStats.missing" class="text-gray-400">（{{ batchStats.missing }} 份未上传自动跳过）</span>
+          </p>
+          <p v-if="batchDuplexMixed" class="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded p-2">
+            JSA 与交底双面模式不同，将分为两个 PDF 依次打印：先交底（双面长边）打印一次，再 JSA（双面短边）打印一次，共两次打印。
+          </p>
+        </div>
+        <DialogFooter class="shrink-0">
+          <Button @click="showBatchDialog = false" variant="outline">取消</Button>
+          <Button @click="confirmBatchPrint" class="bg-primary text-white" :disabled="!batchStats.total || batchPrinting">
+            {{ batchPrinting ? '正在合并...' : '开始打印' }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
     <!-- 提示弹窗 -->
     <Dialog v-model:open="showTipDialog">
       <DialogContent class="sm:max-w-sm">
@@ -227,7 +338,7 @@
           <p class="text-sm text-gray-700">{{ tipMessage }}</p>
         </div>
         <DialogFooter>
-          <Button @click="showTipDialog = false" class="bg-primary text-white">确定</Button>
+          <Button @click="closeTipDialog" class="bg-primary text-white">确定</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -235,7 +346,7 @@
 </template>
 
 <script setup lang="ts">
-import { Plus, Pencil } from '@lucide/vue'
+import { Plus, Pencil, Printer, Upload } from '@lucide/vue'
 import { ref, reactive, computed, onMounted } from 'vue'
 
 // ==================== 数据定义 ====================
@@ -248,6 +359,12 @@ interface WorkTicket {
   is_enabled: number
   approver: string | null
   remark: string | null
+  height_jsa_pdf: string | null
+  height_analysis_pdf: string | null
+  scaffold_jsa_pdf: string | null
+  scaffold_analysis_pdf: string | null
+  confined_jsa_pdf: string | null
+  confined_analysis_pdf: string | null
   created_at: string
 }
 
@@ -272,11 +389,38 @@ const saving = ref(false)
 const showTipDialog = ref(false)
 const tipMessage = ref('')
 const tipTitle = ref('提示')
+const tipConfirmCb = ref<(() => void) | null>(null)
 
-function showTip(msg: string, title = '提示') {
+const pdfFileInput = ref<HTMLInputElement | null>(null)
+
+type PdfType = 'height-jsa' | 'height-analysis' | 'scaffold-jsa' | 'scaffold-analysis' | 'confined-jsa' | 'confined-analysis'
+type PdfField = 'height_jsa_pdf' | 'height_analysis_pdf' | 'scaffold_jsa_pdf' | 'scaffold_analysis_pdf' | 'confined_jsa_pdf' | 'confined_analysis_pdf'
+
+// 三种作业票（高处/脚手架/受限空间）各分为 JSA交底 + 交底 两个PDF；JSA交底双面短边打印，交底双面长边打印
+const pdfSlots: { type: PdfType; label: string; shortLabel: string; field: PdfField; duplex: 'long' | 'short'; activeClass: string }[] = [
+  { type: 'height-jsa', label: '高处作业票 · JSA交底', shortLabel: '高处JSA', field: 'height_jsa_pdf', duplex: 'short', activeClass: 'text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50' },
+  { type: 'height-analysis', label: '高处作业票 · 交底', shortLabel: '高处交底', field: 'height_analysis_pdf', duplex: 'long', activeClass: 'text-teal-600 hover:text-teal-700 hover:bg-teal-50' },
+  { type: 'scaffold-jsa', label: '脚手架作业票 · JSA交底', shortLabel: '脚手架JSA', field: 'scaffold_jsa_pdf', duplex: 'short', activeClass: 'text-violet-600 hover:text-violet-700 hover:bg-violet-50' },
+  { type: 'scaffold-analysis', label: '脚手架作业票 · 交底', shortLabel: '脚手架交底', field: 'scaffold_analysis_pdf', duplex: 'long', activeClass: 'text-purple-600 hover:text-purple-700 hover:bg-purple-50' },
+  { type: 'confined-jsa', label: '受限空间作业票 · JSA交底', shortLabel: '受限空间JSA', field: 'confined_jsa_pdf', duplex: 'short', activeClass: 'text-cyan-600 hover:text-cyan-700 hover:bg-cyan-50' },
+  { type: 'confined-analysis', label: '受限空间作业票 · 交底', shortLabel: '受限空间交底', field: 'confined_analysis_pdf', duplex: 'long', activeClass: 'text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50' }
+]
+
+const currentPdfType = ref<PdfType>('height-jsa')
+const uploadingType = ref<'' | PdfType>('')
+
+function showTip(msg: string, title = '提示', onConfirm?: () => void) {
   tipMessage.value = msg
   tipTitle.value = title
+  tipConfirmCb.value = onConfirm || null
   showTipDialog.value = true
+}
+
+function closeTipDialog() {
+  showTipDialog.value = false
+  const cb = tipConfirmCb.value
+  tipConfirmCb.value = null
+  if (cb) cb()
 }
 
 const form = reactive({
@@ -379,6 +523,14 @@ function onFilterChange() {
 function changePage(p: number) {
   if (p < 1 || p > pagination.totalPages) return
   pagination.page = p
+  fetchList()
+}
+
+// 切换每页条数：重置到第1页重新加载（参数为Select的AcceptableValue，此处用any兼容）
+function onPageSizeChange(v: any) {
+  pagination.pageSize = Number(v) || 10
+  pagination.page = 1
+  pagination.totalPages = 0
   fetchList()
 }
 
@@ -485,6 +637,229 @@ async function saveForm() {
   }
 }
 
+// ==================== PDF 上传与打印 ====================
+function triggerPdfInput(type: PdfType) {
+  currentPdfType.value = type
+  pdfFileInput.value?.click()
+}
+
+async function onPdfSelected(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = '' // 清空以便重复选择同一文件
+  if (!file || !editingItem.value) return
+  if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+    formError.value = '请选择 PDF 文件'
+    return
+  }
+  const type = currentPdfType.value
+  const slot = pdfSlots.find(s => s.type === type)
+  uploadingType.value = type
+  formError.value = ''
+  try {
+    const fd = new FormData()
+    fd.append('id', String(editingItem.value.id))
+    fd.append('type', type)
+    fd.append('file', file)
+    const response = await $fetch('/api/work-ticket-upload-pdf', {
+      method: 'POST',
+      body: fd
+    }) as any
+    if (response.success) {
+      // 直接更新当前编辑项（与列表共享同一对象引用，列表同步刷新）
+      if (slot) {
+        editingItem.value[slot.field] = response.path
+      }
+      showTip(`${slot?.label || '作业票'} PDF 上传成功`)
+    } else {
+      formError.value = response.message || '上传失败'
+    }
+  } catch (error: any) {
+    formError.value = error.message || '上传失败'
+  } finally {
+    uploadingType.value = ''
+  }
+}
+
+function printTicket(item: WorkTicket, slot: (typeof pdfSlots)[number]) {
+  const path = item[slot.field]
+  if (!path) {
+    showTip(`「${item.work_location}」还未上传${slot.label} PDF，请先在编辑中上传`, '提示')
+    return
+  }
+  // 通过 duplex 参数让服务端在PDF中写入双面打印偏好（JSA交底=短边 / 交底=长边）
+  printOnePdf(`${path}?duplex=${slot.duplex}`)
+}
+
+// ==================== 批量选择与打印 ====================
+// 存行对象而非id：跨页/筛选后仍能统计PDF上传情况，且与编辑弹窗共享引用自动同步
+const selectedItems = ref<WorkTicket[]>([])
+const showBatchDialog = ref(false)
+const batchTypes = ref<PdfType[]>(pdfSlots.map(s => s.type))
+const batchPrinting = ref(false)
+
+function isSelected(item: WorkTicket) {
+  return selectedItems.value.some(s => s.id === item.id)
+}
+
+function toggleSelect(item: WorkTicket) {
+  const idx = selectedItems.value.findIndex(s => s.id === item.id)
+  if (idx >= 0) selectedItems.value.splice(idx, 1)
+  else selectedItems.value.push(item)
+}
+
+const isAllSelected = computed(() => list.value.length > 0 && list.value.every(i => isSelected(i)))
+const isPartialSelected = computed(() => !isAllSelected.value && list.value.some(i => isSelected(i)))
+
+function toggleSelectAll() {
+  if (isAllSelected.value) {
+    const pageIds = new Set(list.value.map(i => i.id))
+    selectedItems.value = selectedItems.value.filter(s => !pageIds.has(s.id))
+  } else {
+    for (const item of list.value) {
+      if (!isSelected(item)) selectedItems.value.push(item)
+    }
+  }
+}
+
+function toggleBatchType(type: PdfType) {
+  const idx = batchTypes.value.indexOf(type)
+  if (idx >= 0) batchTypes.value.splice(idx, 1)
+  else batchTypes.value.push(type)
+}
+
+function countUploaded(field: PdfField) {
+  return selectedItems.value.filter(i => i[field]).length
+}
+
+// 可打印份数与未上传跳过份数
+const batchStats = computed(() => {
+  let total = 0
+  for (const item of selectedItems.value) {
+    for (const slot of pdfSlots) {
+      if (batchTypes.value.includes(slot.type) && item[slot.field]) total++
+    }
+  }
+  return { total, missing: selectedItems.value.length * batchTypes.value.length - total }
+})
+
+// 勾选类型是否同时包含长边和短边（合并PDF只能有一个文档级双面设置）
+const batchDuplexMixed = computed(() => {
+  const set = new Set(pdfSlots.filter(s => batchTypes.value.includes(s.type)).map(s => s.duplex))
+  return set.size > 1
+})
+
+function openBatchDialog() {
+  if (!selectedItems.value.length) return
+  showBatchDialog.value = true
+}
+
+async function confirmBatchPrint() {
+  if (!batchStats.value.total || batchPrinting.value) return
+  batchPrinting.value = true
+  try {
+    const ids = selectedItems.value.map(i => i.id).join(',')
+    const slots = pdfSlots.filter(s => batchTypes.value.includes(s.type))
+    // 按双面模式分组：交底（长边）一组、JSA（短边）一组，各合并为一个PDF分两次打印
+    const groups = [
+      { duplex: 'long', label: '交底', slots: slots.filter(s => s.duplex === 'long') },
+      { duplex: 'short', label: 'JSA', slots: slots.filter(s => s.duplex === 'short') }
+    ].filter(g => g.slots.length)
+
+    // 先把各组合并PDF全部准备好（blob URL），避免打印间隙再做网络请求
+    const jobs: { label: string; objUrl: string }[] = []
+    for (const g of groups) {
+      // 该组没有已上传文件时跳过（不发起请求）
+      const hasFile = g.slots.some(slot => selectedItems.value.some(i => i[slot.field]))
+      if (!hasFile) continue
+
+      const url = `/api/work-ticket-print-merge?ids=${ids}&types=${g.slots.map(s => s.type).join(',')}&duplex=${g.duplex}`
+      // 用原生fetch避免$fetch对动态URL的路由类型深度推断；先取响应以捕获服务端错误，再转blob URL
+      const res = await fetch(url)
+      if (!res.ok) {
+        const data = await res.json().catch(() => null) as any
+        throw new Error(data?.message || '合并打印文件失败')
+      }
+      const blob = await res.blob()
+      jobs.push({ label: g.label, objUrl: URL.createObjectURL(blob) })
+    }
+
+    if (!jobs.length) {
+      showTip('所选作业票没有已上传的对应PDF', '提示')
+      return
+    }
+
+    // 提前关对话框，避免遮挡打印对话框
+    showBatchDialog.value = false
+
+    // 打印队列：Chrome 的 print() 需要用户手势（约5秒窗口），第一次打印后手势已过期，
+    // 第二次 print() 会被静默忽略，必须经用户点击续接（提示框"确定"）重新获得手势
+    const run = async (idx: number) => {
+      const job = jobs[idx]
+      if (!job) return
+      await printOnePdf(job.objUrl)
+      URL.revokeObjectURL(job.objUrl)
+      if (idx + 1 < jobs.length) {
+        const next = jobs[idx + 1]
+        if (!next) return
+        showTip(
+          `「${job.label}」已打印完成。请点击"确定"继续打印「${next.label}」（第 ${idx + 2}/${jobs.length} 次打印）。`,
+          '批量打印',
+          () => run(idx + 1)
+        )
+      }
+    }
+    await run(0)
+  } catch (error: any) {
+    showTip(error?.message || '合并打印文件失败，请稍后重试', '错误')
+  } finally {
+    batchPrinting.value = false
+  }
+}
+
+function printOnePdf(path: string): Promise<void> {
+  // 隐藏 iframe 加载同源 PDF，加载完成后触发浏览器打印；打印对话框关闭后 resolve（供批量打印排队）
+  return new Promise(resolve => {
+    const iframe = document.createElement('iframe')
+    iframe.style.position = 'fixed'
+    iframe.style.right = '100%'
+    iframe.style.bottom = '100%'
+    iframe.style.width = '0'
+    iframe.style.height = '0'
+    iframe.style.border = '0'
+    iframe.src = path
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      setTimeout(() => iframe.remove(), 3000)
+      resolve()
+    }
+    // 兜底：iframe加载失败或打印异常时30秒后强制继续，避免批量打印卡死
+    setTimeout(finish, 30000)
+    iframe.onload = () => {
+      const win = iframe.contentWindow
+      if (!win) {
+        finish()
+        return
+      }
+      try {
+        win.focus()
+        win.addEventListener('afterprint', finish, { once: true })
+        win.print()
+        // Chrome/Edge 的 print() 同步阻塞，返回时对话框已关闭；
+        // 但 iframe 的 afterprint 事件不可靠（可能触发在父窗口或根本不触发），
+        // 用短延迟兜底确保批量打印能继续排队（约1.5秒后弹下一次打印）
+        setTimeout(finish, 1500)
+      } catch {
+        window.open(path, '_blank')
+        finish()
+      }
+    }
+    document.body.appendChild(iframe)
+  })
+}
+
 // ==================== 删除 ====================
 function openDeleteDialog(item: WorkTicket) {
   deletingItem.value = item
@@ -500,6 +875,7 @@ async function confirmDelete() {
     }) as any
     if (response.success) {
       showDeleteDialog.value = false
+      selectedItems.value = selectedItems.value.filter(s => s.id !== deletingItem.value?.id)
       fetchList()
     } else {
       showTip(response.message || '删除失败', '错误')

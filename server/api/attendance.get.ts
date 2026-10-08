@@ -3,6 +3,18 @@ import { query } from '../utils/db'
 // GET /api/attendance?person_id=1&year=2026&month=6
 export default defineEventHandler(async (event) => {
   try {
+    // 检查 manual_hours / manual_times 列是否存在，不存在则添加（手动录入数据与导入考勤分开存储）
+    const columns = await query(
+      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'attendance' AND COLUMN_NAME IN ('manual_hours', 'manual_times')"
+    ) as any[]
+    const columnNames = new Set(columns.map(c => c.COLUMN_NAME))
+    if (!columnNames.has('manual_hours')) {
+      await query("ALTER TABLE attendance ADD COLUMN manual_hours DECIMAL(5,1) DEFAULT NULL COMMENT '手动录入工时（小时）'")
+    }
+    if (!columnNames.has('manual_times')) {
+      await query("ALTER TABLE attendance ADD COLUMN manual_times VARCHAR(120) DEFAULT NULL COMMENT '手动录入的打卡时间（JSON）'")
+    }
+
     const { person_id, year, month } = getQuery(event) as { person_id?: string; year?: string; month?: string }
     
     if (!person_id) {

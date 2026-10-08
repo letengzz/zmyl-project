@@ -61,6 +61,7 @@
               <SelectItem value="all">全部</SelectItem>
               <SelectItem value="0">在职</SelectItem>
               <SelectItem value="1">已离职</SelectItem>
+              <SelectItem value="2">回家</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -111,8 +112,8 @@
               </td>
               <td class="px-4 py-3">{{ formatDate(person.entry_time) }}</td>
               <td class="px-4 py-3">
-                <span :class="person.is_resign === 1 ? 'text-red-600' : 'text-green-600'">
-                  {{ person.is_resign === 1 ? '已离职' : '在职' }}
+                <span :class="person.is_resign === 1 ? 'text-red-600' : person.is_resign === 2 ? 'text-amber-600' : 'text-green-600'">
+                  {{ person.is_resign === 1 ? '已离职' : person.is_resign === 2 ? '回家' : '在职' }}
                 </span>
               </td>
               <td class="px-4 py-3">{{ person.attendance_salary != null ? `¥${person.attendance_salary}` : '-' }}</td>

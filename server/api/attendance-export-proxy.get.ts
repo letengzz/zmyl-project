@@ -18,7 +18,10 @@ function escXml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-function mapPosition(pos: string): string {
+// 职位显示映射：数据库存 "管理"/"架工"，导出时显示为 "工程管理"/"架设"
+function mapPosition(pos: string, name?: string): string {
+  // 硬编码：张索石导出的职位固定为“架设”
+  if (name === '张索石') return '架设'
   const map: Record<string, string> = {
     '管理': '工程管理',
     '架工': '架设',
@@ -78,7 +81,7 @@ export default defineEventHandler(async (event) => {
     const endDate = `${nextY}-${String(nextM).padStart(2, '0')}-01`
 
     const records = await query(
-      'SELECT person_id, attendance_date, hours FROM attendance WHERE attendance_date >= ? AND attendance_date < ? ORDER BY id',
+      `SELECT person_id, attendance_date, CASE WHEN hours > 0 THEN hours ELSE manual_hours END AS hours FROM attendance WHERE attendance_date >= ? AND attendance_date < ? ORDER BY punch_seq IS NULL, punch_seq, id`,
       [startDate, endDate]
     ) as any[]
 
@@ -197,7 +200,7 @@ export default defineEventHandler(async (event) => {
 
           sheetXml = setCell(sheetXml, 'A' + r1, page * PAGE_SIZE + pi + 1)
           sheetXml = setCell(sheetXml, 'B' + r1, p.name)
-          sheetXml = setCell(sheetXml, 'C' + r1, mapPosition(p.position) || '')
+          sheetXml = setCell(sheetXml, 'C' + r1, mapPosition(p.position, p.name) || '')
           sheetXml = setCell(sheetXml, 'D' + r1, '出勤')
 
           sheetXml = setCell(sheetXml, 'A' + r2, null)
@@ -304,7 +307,7 @@ export default defineEventHandler(async (event) => {
             .replace(/ r="4"/, ` r="${currentRowNum}"`)
             .replace(/<c r="([A-Z]+)4"/g, (_, col) => `<c r="${col}${currentRowNum}"`)
           newRow = setCell(newRow, `A${currentRowNum}`, i + 1)
-          newRow = setCell(newRow, `B${currentRowNum}`, mapPosition(record.position) || '')
+          newRow = setCell(newRow, `B${currentRowNum}`, mapPosition(record.position, record.name) || '')
           newRow = setCell(newRow, `C${currentRowNum}`, record.name || '')
           newRow = setCell(newRow, `D${currentRowNum}`, record.id_card || '')
           newRow = setCell(newRow, `E${currentRowNum}`, record.phone || '')

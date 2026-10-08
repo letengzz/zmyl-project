@@ -32,6 +32,7 @@
             <div class="flex gap-1">
               <Button @click="showAddDialog = true; addLocation = 1; addTargetTaskIndex = tIdx" size="sm" class="bg-primary text-white"><Plus class="w-4 h-4 mr-1" />新增人员</Button>
               <Button @click="showExportDialog = true; exportLocation = 1; exportTaskIndex = tIdx" variant="outline" size="sm"><Download class="w-4 h-4 mr-1" />导出</Button>
+              <Button @click="printOvertimeWord(1, tIdx)" variant="outline" size="sm" :disabled="printingTaskKey === `1-${tIdx}`"><Printer class="w-4 h-4 mr-1" />{{ printingTaskKey === `1-${tIdx}` ? '转换中' : '打印' }}</Button>
               <Button @click="removeTask(1, tIdx)" variant="outline" size="sm" v-if="overtimeTasks1.length > 1" class="text-red-500">移除</Button>
             </div>
           </div>
@@ -76,6 +77,7 @@
             <div class="flex gap-1">
               <Button @click="showAddDialog = true; addLocation = 2; addTargetTaskIndex = tIdx" size="sm" class="bg-primary text-white"><Plus class="w-4 h-4 mr-1" />新增人员</Button>
               <Button @click="showExportDialog = true; exportLocation = 2; exportTaskIndex = tIdx" variant="outline" size="sm"><Download class="w-4 h-4 mr-1" />导出</Button>
+              <Button @click="printOvertimeWord(2, tIdx)" variant="outline" size="sm" :disabled="printingTaskKey === `2-${tIdx}`"><Printer class="w-4 h-4 mr-1" />{{ printingTaskKey === `2-${tIdx}` ? '转换中' : '打印' }}</Button>
               <Button @click="removeTask(2, tIdx)" variant="outline" size="sm" v-if="overtimeTasks2.length > 1" class="text-red-500">移除</Button>
             </div>
           </div>
@@ -123,10 +125,10 @@
     <Dialog v-model:open="showSaveResultDialog">
       <DialogContent class="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>{{ saveResultSuccess ? '保存成功' : '保存失败' }}</DialogTitle>
+          <DialogTitle>{{ saveResultTitle }}</DialogTitle>
           <DialogDescription>{{ saveResultMessage }}</DialogDescription>
         </DialogHeader>
-        <div class="flex justify-end mt-4"><Button @click="showSaveResultDialog = false">确定</Button></div>
+        <div class="flex justify-end mt-4"><Button @click="closeSaveResultDialog">确定</Button></div>
       </DialogContent>
     </Dialog>
   </div>
@@ -134,7 +136,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import { Plus, Download, Save, UsersRound, FileDown } from '@lucide/vue'
+import { Plus, Download, Save, UsersRound, FileDown, Printer } from '@lucide/vue'
 import PersonGroup from '~/components/PersonGroup.vue'
 import AddPersonDialog from '~/components/AddPersonDialog.vue'
 import ExportDialog from '~/components/ExportDialog.vue'
@@ -168,6 +170,9 @@ const selectedPerson = ref<Person | null>(null)
 const deletePersonId = ref<number | null>(null); const deletePersonName = ref('')
 const deletePersonLocation = ref<number>(1); const deletePersonTaskIndex = ref<number>(0)
 const saveResultMessage = ref(''); const saveResultSuccess = ref(true)
+const saveResultTitle = ref('')
+const saveResultCb = ref<(() => void) | null>(null)
+const printingTaskKey = ref('')
 
 const defaultLocation1 = '无'
 const defaultContent1 = '无'
@@ -385,8 +390,19 @@ async function saveAllOvertime() {
   else showSaveResult(!hasError, results.join('\n'))
 }
 
-function showSaveResult(success: boolean, message: string) {
-  saveResultSuccess.value = success; saveResultMessage.value = message; showSaveResultDialog.value = true
+function showSaveResult(success: boolean, message: string, onConfirm?: () => void, title?: string) {
+  saveResultSuccess.value = success
+  saveResultMessage.value = message
+  saveResultTitle.value = title || (success ? '保存成功' : '保存失败')
+  saveResultCb.value = onConfirm || null
+  showSaveResultDialog.value = true
+}
+
+function closeSaveResultDialog() {
+  showSaveResultDialog.value = false
+  const cb = saveResultCb.value
+  saveResultCb.value = null
+  if (cb) cb()
 }
 
 // ---- 删除 ----
@@ -470,6 +486,68 @@ function handleAddPerson(personId: number, location: number) {
 }
 
 function showPersonDetail(person: Person) { selectedPerson.value = person; showDetailDialog.value = true }
+
+// ---- 打印 Word ----
+async function printOvertimeWord(location: number, taskIndex: number) {
+  const key = `${location}-${taskIndex}`
+  const tasks = location === 1 ? overtimeTasks1.value : overtimeTasks2.value
+  const task = tasks[taskIndex]
+  if (!task) return
+  if (!sharedDate.value) { showSaveResult(false, '请选择日期'); return }
+  if (!task.startTime || !task.endTime) { showSaveResult(false, '请填写开始时间和结束时间'); return }
+  if (!task.persons.length) { showSaveResult(false, '该阶段没有人员，无法打印'); return }
+
+  printingTaskKey.value = key
+  try {
+    // 服务端生成 docx 后用本机 Word 转成 PDF（打印效果与 Word 完全一致）
+    const response = await fetch('/export-word-pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        date: sharedDate.value,
+        startTime: task.startTime,
+        endTime: task.endTime,
+        workLocation: task.workLocation,
+        workContent: task.workContent,
+        persons: task.persons.map(p => ({ name: p.name, position: p.position })),
+        location,
+      }),
+    })
+    if (!response.ok) {
+      const err = await response.json().catch(() => null) as any
+      throw new Error(err?.message || '转换失败')
+    }
+    const blob = await response.blob()
+    const objUrl = URL.createObjectURL(blob)
+    // 转换耗时可能超出浏览器打印的用户手势窗口，点击"确定"后打印保证可靠弹出
+    showSaveResult(true, 'PDF 已生成，点击确定开始打印', () => {
+      printPdfViaIframe(objUrl)
+      setTimeout(() => URL.revokeObjectURL(objUrl), 60000)
+    }, '打印')
+  } catch (error: any) {
+    showSaveResult(false, '打印失败: ' + error.message + '（需本机已安装 Microsoft Word）')
+  } finally {
+    printingTaskKey.value = ''
+  }
+}
+
+function printPdfViaIframe(objUrl: string) {
+  // 隐藏 iframe 加载 PDF，加载完成后触发浏览器打印
+  const iframe = document.createElement('iframe')
+  iframe.style.cssText = 'position:fixed;right:100%;bottom:100%;width:0;height:0;border:0;'
+  iframe.src = objUrl
+  iframe.onload = () => {
+    try {
+      iframe.contentWindow?.focus()
+      iframe.contentWindow?.print()
+    } catch {
+      window.open(objUrl, '_blank')
+    }
+    // 打印对话框关闭前不能移除 iframe，延迟清理
+    setTimeout(() => iframe.remove(), 60000)
+  }
+  document.body.appendChild(iframe)
+}
 
 // ---- 导出 ----
 async function exportOvertimeApplication() {

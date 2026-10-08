@@ -59,6 +59,7 @@
               <SelectContent>
                 <SelectItem :value="0">在职</SelectItem>
                 <SelectItem :value="1">已离职</SelectItem>
+                <SelectItem :value="2">回家</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -186,6 +187,18 @@ const form = reactive({
 const error = ref('')
 const submitting = ref(false)
 
+// 将后端返回的时间（可能为 ISO 字符串或纯日期字符串）转为本地时区的 YYYY-MM-DD；
+// 注意：ISO 字符串（如 2026-08-08T16:00:00.000Z）同样以日期开头，必须走 new Date() 本地解析，
+// 不能直接截取前 10 位，也不能用 toISOString()，否则会被转回 UTC 导致日期少一天
+function toLocalDateStr(v: string): string {
+  if (!v) return ''
+  // 仅纯日期字符串（YYYY-MM-DD，无时间部分）才直接返回
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v
+  const d = new Date(v)
+  if (isNaN(d.getTime())) return ''
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 watch(() => props.person, (newPerson) => {
   if (newPerson) {
     form.id = newPerson.id
@@ -196,27 +209,9 @@ watch(() => props.person, (newPerson) => {
     form.location = newPerson.location
     form.address = newPerson.address || ''
     // 处理入职时间格式
-    if (newPerson.entry_time) {
-      const date = new Date(newPerson.entry_time)
-      if (!isNaN(date.getTime())) {
-        form.entry_time = date.toISOString().split('T')[0] || ''
-      } else {
-        form.entry_time = ''
-      }
-    } else {
-      form.entry_time = ''
-    }
+    form.entry_time = toLocalDateStr(newPerson.entry_time || '')
     // 处理离场时间格式
-    if (newPerson.departure_time) {
-      const dDate = new Date(newPerson.departure_time)
-      if (!isNaN(dDate.getTime())) {
-        form.departure_time = dDate.toISOString().split('T')[0] || ''
-      } else {
-        form.departure_time = ''
-      }
-    } else {
-      form.departure_time = ''
-    }
+    form.departure_time = toLocalDateStr(newPerson.departure_time || '')
     form.is_resign = newPerson.is_resign || 0
     form.emer_person = newPerson.emer_person || ''
     form.emer_phone = newPerson.emer_phone || ''
