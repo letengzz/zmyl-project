@@ -176,8 +176,8 @@ const printingTaskKey = ref('')
 
 const defaultLocation1 = '无'
 const defaultContent1 = '无'
-const defaultLocation2 = '碱洗区、压缩区、乙烯区、冷区、热区、丙烯区'
-const defaultContent2 = '搭设脚手架、拆除脚手架'
+const defaultLocation2 = '烷基化丁烯-1'
+const defaultContent2 = '搭设脚手架、变更脚手架'
 
 function createDefaultTask(location: number): OvertimeTaskData {
   return {

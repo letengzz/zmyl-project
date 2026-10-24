@@ -5,26 +5,33 @@ import { query } from './db'
 export interface AttendanceRule {
   morningStart: string      // 上午上班标准时间
   morningEarly: number      // 上午上班允许提前（分钟）
+  morningGrace: number      // 上午上班迟到宽限（分钟）
   morningEnd: string        // 上午下班标准时间
   morningEndEarly: number   // 上午下班允许提前（分钟）
+  morningEndGrace: number   // 上午下班迟到宽限（分钟）
   afternoonStart: string    // 下午上班标准时间
   afternoonEarly: number    // 下午上班允许提前（分钟）
   afternoonGrace: number    // 下午上班迟到宽限（分钟）
   afternoonEnd: string      // 下午下班标准时间
   afternoonEndEarly: number // 下午下班允许提前（分钟）
+  afternoonEndGrace: number // 下午下班迟到宽限（分钟）
 }
 
 // 默认规则（与历史硬编码保持一致：上午 08:00/11:30，下午 13:30/18:00，提前 30/10 分钟，宽限 10 分钟）
+// morningGrace 默认 15：历史上午上班判定分界为 07:45（08:00 前 15 分钟），保持不变
 export const DEFAULT_RULE: AttendanceRule = {
   morningStart: '08:00',
   morningEarly: 30,
+  morningGrace: 15,
   morningEnd: '11:30',
   morningEndEarly: 10,
+  morningEndGrace: 10,
   afternoonStart: '13:30',
   afternoonEarly: 30,
   afternoonGrace: 10,
   afternoonEnd: '18:00',
-  afternoonEndEarly: 10
+  afternoonEndEarly: 10,
+  afternoonEndGrace: 10
 }
 
 // HH:MM → 分钟数
@@ -55,23 +62,27 @@ export function normalizeRule(raw: any): AttendanceRule {
   return {
     morningStart: time(src.morningStart, DEFAULT_RULE.morningStart),
     morningEarly: num(src.morningEarly, DEFAULT_RULE.morningEarly, 240),
+    morningGrace: num(src.morningGrace, DEFAULT_RULE.morningGrace, 240),
     morningEnd: time(src.morningEnd, DEFAULT_RULE.morningEnd),
     morningEndEarly: num(src.morningEndEarly, DEFAULT_RULE.morningEndEarly, 240),
+    morningEndGrace: num(src.morningEndGrace, DEFAULT_RULE.morningEndGrace, 240),
     afternoonStart: time(src.afternoonStart, DEFAULT_RULE.afternoonStart),
     afternoonEarly: num(src.afternoonEarly, DEFAULT_RULE.afternoonEarly, 240),
     afternoonGrace: num(src.afternoonGrace, DEFAULT_RULE.afternoonGrace, 240),
     afternoonEnd: time(src.afternoonEnd, DEFAULT_RULE.afternoonEnd),
-    afternoonEndEarly: num(src.afternoonEndEarly, DEFAULT_RULE.afternoonEndEarly, 240)
+    afternoonEndEarly: num(src.afternoonEndEarly, DEFAULT_RULE.afternoonEndEarly, 240),
+    afternoonEndGrace: num(src.afternoonEndGrace, DEFAULT_RULE.afternoonEndGrace, 240)
   }
 }
 
 // 判定边界（分钟数）
 export interface MinuteRule {
-  earlyBase: number     // 早到计入时间（上班）／标准下班时间（下班场景不使用）
-  lateLimit: number     // 迟到宽限点（下午上班使用）
+  earlyBase: number     // 早到计入时间（上班）
+  lateLimit: number     // 上班迟到宽限点：≤ 此值按 earlyBase 算，之后按 stdStart 算
   stdStart: number      // 标准上班时间
   stdEnd: number        // 标准下班时间
   endEarlyFrom: number  // 下班允许提前的起点（此时间后按下班标准算）
+  endGrace: number      // 下班迟到宽限：晚于 stdEnd 但不超过 stdEnd+endGrace 仍按 stdEnd 算
 }
 
 // 由规则推导出上/下午的判定边界（默认规则推导结果与历史常量完全一致）
@@ -83,17 +94,19 @@ export function deriveMinuteRules(rule: AttendanceRule): { morning: MinuteRule; 
   return {
     morning: {
       earlyBase: ms - rule.morningEarly,
-      lateLimit: ms - rule.morningEarly,
+      lateLimit: ms - rule.morningGrace,
       stdStart: ms,
       stdEnd: me,
-      endEarlyFrom: me - rule.morningEndEarly
+      endEarlyFrom: me - rule.morningEndEarly,
+      endGrace: rule.morningEndGrace
     },
     afternoon: {
       earlyBase: as_ - rule.afternoonEarly,
       lateLimit: as_ - rule.afternoonGrace,
       stdStart: as_,
       stdEnd: ae,
-      endEarlyFrom: ae - rule.afternoonEndEarly
+      endEarlyFrom: ae - rule.afternoonEndEarly,
+      endGrace: rule.afternoonEndGrace
     }
   }
 }

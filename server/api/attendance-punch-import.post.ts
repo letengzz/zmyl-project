@@ -1,12 +1,10 @@
 import { query } from '../utils/db'
-import { getAttendanceRule, deriveMinuteRules, fmtMin, type MinuteRule } from '../utils/attendance-rule'
+import { getAttendanceRule, deriveMinuteRules } from '../utils/attendance-rule'
+import { calcHours, parseTime, type RulePair } from '../utils/attendance-calc'
 import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
 const XLSX = require('xlsx')
-
-// 上/下午判定边界
-type RulePair = { morning: MinuteRule; afternoon: MinuteRule }
 
 // POST /api/attendance-punch-import - 导入考勤报表中的上下班时间（multipart 上传 xlsx）
 // 数据写入 attendance.manual_hours / manual_times（与手动录入同源，不影响导入工时 hours）
@@ -125,7 +123,7 @@ export default defineEventHandler(async (event) => {
           )
           continue
         }
-        const hours = calcHours(minuteRules, picked)
+        const hours = calcHours(picked)
         if (hours <= 0) {
           skippedDays++
           // 工时为 0 同样清空旧数据
@@ -190,18 +188,17 @@ function extractTimes(cell: string): string[] {
 }
 
 // 从打卡时间序列中确定四个时间点（兼容多打/漏打卡）
-// 各判定边界由「设置」中的打卡规则推导（默认：上午下班 11:30、下午上班宽限 13:20、下午上班早到 13:00）
+// 各判定边界由「设置」中的打卡规则推导（仅用于判定时间点的归属，不参与工时折算）
 // ≥4 次：第一个=上午上班，最后一个=下午下班；
 //   中午时段 [上午下班-30, 下午上班标准+30] 有 ≥2 次打卡时：第一个=上午下班、第二个=下午上班；
-//   只有 1 次中午打卡：视为上午下班，下午上班默认取「下午上班早到时间」；无中午打卡按时段兑底
+//   只有 1 次中午打卡：视为上午下班（下午上班留空）；无中午打卡时按 12:00 前后分别取上午下班/下午上班
 // 3 次：中间卡靠近上午下班点则中间=上午下班、第一张=上午上班、最后一张>下午上班宽限=下午下班否则=下午上班；
 //   中间卡靠近下午上班宽限点则中间=下午上班、第一张<上午下班点=上午上班否则=上午下班、最后一张=下午下班
 // 2 次：第一张<上午下班点=上午上班否则=上午下班；最后一张>下午上班宽限=下午下班否则=下午上班
-// 缺失的时间点：上午下班/下午上班按规则时间补全，
-//   上午上班/下午下班不猜（存空，该时段不计工时）；1 次及以下跳过
+// 缺失的时间点一律留空（不补默认时间），对应时段不计工时；1 次及以下跳过
 function pickFour(times: string[], rule: RulePair): { morningStart: string; morningEnd: string; afternoonStart: string; afternoonEnd: string } | null {
   const sorted = [...times].sort()
-  const DEFAULT = { morningStart: '', morningEnd: fmtMin(rule.morning.stdEnd), afternoonStart: fmtMin(rule.afternoon.earlyBase), afternoonEnd: '' }
+  const DEFAULT = { morningStart: '', morningEnd: '', afternoonStart: '', afternoonEnd: '' }
   // 中午时段窗口：上午下班标准时间前 30 分钟 ~ 下午上班标准时间后 30 分钟
   const middayFrom = rule.morning.stdEnd - 30
   const middayTo = rule.afternoon.stdStart + 30
@@ -215,13 +212,13 @@ function pickFour(times: string[], rule: RulePair): { morningStart: string; morn
       morningEnd = midday[0]!
       afternoonStart = midday[1]!
     } else if (midday.length === 1) {
+      // 只有一次中午打卡：视为上午下班，下午上班留空（下午时段不计工时）
       morningEnd = midday[0]!
-      afternoonStart = DEFAULT.afternoonStart
     } else {
       const preNoon = sorted.filter(t => { const v = parseTime(t); return v !== null && v <= 12 * 60 })
       const afternoon = sorted.filter(t => { const v = parseTime(t); return v !== null && v > 12 * 60 })
-      morningEnd = preNoon.length > 0 ? preNoon[preNoon.length - 1]! : first
-      afternoonStart = afternoon.length > 0 ? afternoon[0]! : DEFAULT.afternoonStart
+      morningEnd = preNoon.length > 0 ? preNoon[preNoon.length - 1]! : ''
+      afternoonStart = afternoon.length > 0 ? afternoon[0]! : ''
     }
     return { ...DEFAULT, morningStart: first, morningEnd, afternoonStart, afternoonEnd: last }
   }
@@ -267,75 +264,6 @@ function pickFour(times: string[], rule: RulePair): { morningStart: string; morn
   return null
 }
 
-// 解析 HH:MM 为分钟数
-function parseTime(t: string): number | null {
-  const m = t.match(/^(\d{1,2}):(\d{2})$/)
-  if (!m) return null
-  const h = Number(m[1])
-  const min = Number(m[2])
-  if (h > 23 || min > 59) return null
-  return h * 60 + min
-}
+// 说明：打卡时间折算（parseTime / effectiveStart / effectiveEnd / calcHours 等）
+// 统一由 server/utils/attendance-calc.ts 提供，供「打卡导入」与「按规则重算」共用，避免两套逻辑不一致
 
-// 上午上班：就近取整到整点/半点后限制在 [早到计入, 标准上班]（早到保底、迟到封顶）
-function effectiveMorningStart(rule: RulePair, t: number): number {
-  const r = rule.morning
-  const rounded = roundToHalfHour(t)
-  if (rounded <= r.earlyBase) return r.earlyBase
-  if (rounded > r.stdStart) return r.stdStart
-  return rounded
-}
-
-// 下午上班：不晚于迟到宽限点（含）按早到计入时间算，之后按标准上班时间算
-function effectiveAfternoonStart(rule: RulePair, t: number): number {
-  const r = rule.afternoon
-  if (t <= r.lateLimit) return r.earlyBase
-  return r.stdStart
-}
-
-// 生效下班时间：不低于（标准下班 - 允许提前）时按标准下班算；
-// allowOvertime 为 true 时晚于标准下班取最接近的整点/半点（加班），距离相等时向下；否则封顶按标准下班算
-function effectiveEnd(t: number, rule: { stdEnd: number; endEarlyFrom: number }, allowOvertime: boolean): number {
-  if (t >= rule.endEarlyFrom) {
-    if (!allowOvertime) return rule.stdEnd
-    if (t <= rule.stdEnd) return rule.stdEnd
-    return roundToHalfHour(t)
-  }
-  return t
-}
-
-// 取最接近的整点/半点（30分钟刻度），距离相等时向下取整（如 18:15→18:00、18:22→18:30）
-function roundToHalfHour(t: number): number {
-  const lower = Math.floor(t / 30) * 30
-  const upper = lower + 30
-  return (t - lower) <= (upper - t) ? lower : upper
-}
-
-// 根据四个时间点折算工时（与前端 manualHours 一致）
-// 上午上班为空 → 上午时段不计；下午下班为空 → 下午时段不计（漏打卡按空处理）
-function calcHours(rule: RulePair, times: { morningStart: string; morningEnd: string; afternoonStart: string; afternoonEnd: string }): number {
-  const ms = parseTime(times.morningStart)
-  const me = parseTime(times.morningEnd)
-  const as_ = parseTime(times.afternoonStart)
-  const ae = parseTime(times.afternoonEnd)
-
-  let totalMin = 0
-  // 半天模式：上午上班打卡不早于上午下班点说明上午未出勤，按「半天（下午早到~标准下班）」+ 加班计算
-  const isHalfDay = ms !== null && ms >= rule.morning.endEarlyFrom
-  if (isHalfDay) {
-    if (ae !== null) {
-      const halfDay = rule.afternoon.stdEnd - rule.afternoon.earlyBase
-      totalMin += halfDay + Math.max(0, effectiveEnd(ae, rule.afternoon, true) - rule.afternoon.stdEnd)
-    }
-  } else {
-    if (ms !== null && me !== null) {
-      const m = effectiveEnd(me, rule.morning, false) - effectiveMorningStart(rule, ms)
-      if (m > 0) totalMin += m
-    }
-    if (as_ !== null && ae !== null) {
-      const a = effectiveEnd(ae, rule.afternoon, true) - effectiveAfternoonStart(rule, as_)
-      if (a > 0) totalMin += a
-    }
-  }
-  return Math.round((totalMin / 60) * 10) / 10
-}

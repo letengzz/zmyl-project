@@ -60,6 +60,11 @@
           <Settings class="w-4 h-4 mr-1" />
           设置
         </Button>
+        <Button @click="refreshAll" variant="outline" size="sm" :disabled="refreshing" title="按当前规则重算当月考勤工时并刷新下方日历与考勤内容">
+          <RefreshCw class="w-4 h-4 mr-1" :class="{ 'animate-spin': refreshing }" />
+          {{ refreshing ? '刷新中...' : '刷新' }}
+        </Button>
+        <span v-if="recalcNotice" class="text-xs text-gray-500">{{ recalcNotice }}</span>
       </div>
     </div>
 
@@ -210,7 +215,7 @@
         <DialogHeader>
           <DialogTitle>导入打卡时间</DialogTitle>
           <DialogDescription>
-            上传考勤报表（含打卡时间的 .xlsx），系统自动识别标题中的日期范围，解析每天的上下班时间并按打卡规则折算为手动考勤
+            上传考勤报表（含打卡时间的 .xlsx），系统自动识别标题中的日期范围，解析每天的上下班时间并按实际打卡时间计算工时
           </DialogDescription>
         </DialogHeader>
         <div class="space-y-4">
@@ -387,8 +392,8 @@
           <div class="space-y-1.5">
             <Label>工时（小时）</Label>
             <div class="flex items-center gap-2">
-              <Input v-model="manualHoursInput" type="number" step="0.1" min="0" placeholder="自动折算" class="w-32" />
-              <span class="text-xs text-gray-400">留空自动按打卡时间折算，可手动修改</span>
+              <Input v-model="manualHoursInput" type="number" step="0.1" min="0" placeholder="自动计算" class="w-32" />
+              <span class="text-xs text-gray-400">留空自动按实际打卡时间计算，可手动修改</span>
             </div>
           </div>
           <!-- 工时预览 -->
@@ -400,7 +405,7 @@
             <span v-else class="text-sm text-gray-400">未选择时间或时间无效</span>
           </div>
           <div v-if="effectiveTimeText" class="text-xs text-gray-500 text-center">
-            生效打卡时间：{{ effectiveTimeText }}
+            实际打卡时间：{{ effectiveTimeText }}
           </div>
           <div class="text-xs text-gray-400 leading-5">
             打卡规则：{{ ruleHelp }}
@@ -420,18 +425,18 @@
 
     <!-- 打卡规则设置弹窗 -->
     <Dialog :open="showRuleDialog" @update:open="showRuleDialog = $event">
-      <DialogContent class="sm:max-w-[540px]">
+      <DialogContent class="sm:max-w-[640px]">
         <DialogHeader>
           <DialogTitle>打卡规则设置</DialogTitle>
           <DialogDescription>
-            设置上/下班的「标准打卡时间」与「允许时间」，用于导入打卡时间与手动录入时的工时折算
+            设置上/下班的「标准打卡时间」与「允许时间」；标准时间用于判定打卡时间属于上午还是下午，工时按实际打卡时间计算
           </DialogDescription>
         </DialogHeader>
         <div class="space-y-4 max-h-[62vh] overflow-y-auto pr-1">
           <!-- 上午 -->
           <div class="rounded-lg border p-3 space-y-3">
             <p class="text-sm font-semibold text-gray-700">上午</p>
-            <div class="grid grid-cols-2 gap-3">
+            <div class="grid grid-cols-3 items-end gap-3">
               <div class="space-y-1.5">
                 <Label>上班标准时间</Label>
                 <input
@@ -446,6 +451,10 @@
                 <Input v-model="ruleForm.morningEarly" type="number" min="0" step="5" />
               </div>
               <div class="space-y-1.5">
+                <Label>上班迟到宽限（分钟）</Label>
+                <Input v-model="ruleForm.morningGrace" type="number" min="0" step="5" />
+              </div>
+              <div class="space-y-1.5">
                 <Label>下班标准时间</Label>
                 <input
                   v-model="ruleForm.morningEnd"
@@ -458,12 +467,16 @@
                 <Label>下班允许提前（分钟）</Label>
                 <Input v-model="ruleForm.morningEndEarly" type="number" min="0" step="5" />
               </div>
+              <div class="space-y-1.5">
+                <Label>下班迟到宽限（分钟）</Label>
+                <Input v-model="ruleForm.morningEndGrace" type="number" min="0" step="5" />
+              </div>
             </div>
           </div>
           <!-- 下午 -->
           <div class="rounded-lg border p-3 space-y-3">
             <p class="text-sm font-semibold text-gray-700">下午</p>
-            <div class="grid grid-cols-2 gap-3">
+            <div class="grid grid-cols-3 items-end gap-3">
               <div class="space-y-1.5">
                 <Label>上班标准时间</Label>
                 <input
@@ -494,13 +507,18 @@
                 <Label>下班允许提前（分钟）</Label>
                 <Input v-model="ruleForm.afternoonEndEarly" type="number" min="0" step="5" />
               </div>
+              <div class="space-y-1.5">
+                <Label>下班迟到宽限（分钟）</Label>
+                <Input v-model="ruleForm.afternoonEndGrace" type="number" min="0" step="5" />
+              </div>
             </div>
           </div>
           <!-- 生效预览 -->
           <div class="text-xs text-gray-500 leading-5 bg-gray-50 rounded-lg p-3 space-y-1">
-            <p class="font-medium text-gray-600">生效规则预览</p>
+            <p class="font-medium text-gray-600">标准时段预览</p>
             <p>上午：{{ ruleFormPreview.morning }}</p>
             <p>下午：{{ ruleFormPreview.afternoon }}</p>
+            <p class="text-gray-400">工时按实际打卡时间计算；「允许提前 / 迟到宽限」用于判定打卡时间归属各时段</p>
           </div>
         </div>
         <DialogFooter class="!justify-between">
@@ -560,7 +578,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted } from 'vue'
-import { ChevronLeft, ChevronRight, ChevronDown, Upload, Download, AlertCircle, Settings } from '@lucide/vue'
+import { ChevronLeft, ChevronRight, ChevronDown, Upload, Download, AlertCircle, Settings, RefreshCw } from '@lucide/vue'
 import {
   Dialog,
   DialogContent,
@@ -672,26 +690,33 @@ const savingAttendance = ref(false)
 interface AttendanceRule {
   morningStart: string      // 上午上班标准时间
   morningEarly: number      // 上午上班允许提前（分钟）
+  morningGrace: number      // 上午上班迟到宽限（分钟）
   morningEnd: string        // 上午下班标准时间
   morningEndEarly: number   // 上午下班允许提前（分钟）
+  morningEndGrace: number   // 上午下班迟到宽限（分钟）
   afternoonStart: string    // 下午上班标准时间
   afternoonEarly: number    // 下午上班允许提前（分钟）
   afternoonGrace: number    // 下午上班迟到宽限（分钟）
   afternoonEnd: string      // 下午下班标准时间
   afternoonEndEarly: number // 下午下班允许提前（分钟）
+  afternoonEndGrace: number // 下午下班迟到宽限（分钟）
 }
 
 // 默认规则（与历史硬编码一致：上午 08:00/11:30，下午 13:30/18:00）
+// morningGrace 默认 15：历史上午上班判定分界为 07:45（08:00 前 15 分钟），保持不变
 const DEFAULT_RULE: AttendanceRule = {
   morningStart: '08:00',
   morningEarly: 30,
+  morningGrace: 15,
   morningEnd: '11:30',
   morningEndEarly: 10,
+  morningEndGrace: 10,
   afternoonStart: '13:30',
   afternoonEarly: 30,
   afternoonGrace: 10,
   afternoonEnd: '18:00',
-  afternoonEndEarly: 10
+  afternoonEndEarly: 10,
+  afternoonEndGrace: 10
 }
 
 const attendanceRule = ref<AttendanceRule>({ ...DEFAULT_RULE })
@@ -722,29 +747,31 @@ const minuteRules = computed(() => {
   return {
     morning: {
       earlyBase: ms - r.morningEarly,
-      lateLimit: ms - r.morningEarly,
+      lateLimit: ms - r.morningGrace,
       stdStart: ms,
       stdEnd: me,
-      endEarlyFrom: me - r.morningEndEarly
+      endEarlyFrom: me - r.morningEndEarly,
+      endGrace: r.morningEndGrace
     },
     afternoon: {
       earlyBase: as_ - r.afternoonEarly,
       lateLimit: as_ - r.afternoonGrace,
       stdStart: as_,
       stdEnd: ae,
-      endEarlyFrom: ae - r.afternoonEndEarly
+      endEarlyFrom: ae - r.afternoonEndEarly,
+      endGrace: r.afternoonEndGrace
     }
   }
 })
 const MORNING_RULE = computed(() => minuteRules.value.morning)
 const AFTERNOON_RULE = computed(() => minuteRules.value.afternoon)
 
-// 默认打卡时间（手动录入弹窗初始化）：上午早到~标准下班；下午早到~下班允许提前起点
+// 默认打卡时间（手动录入弹窗初始化）：按标准时段填充（上午早到~标准下班、下午早到~标准下班）
 const DEFAULT_TIMES = computed(() => ({
   morningStart: fmtHMRule(MORNING_RULE.value.earlyBase),
   morningEnd: fmtHMRule(MORNING_RULE.value.stdEnd),
   afternoonStart: fmtHMRule(AFTERNOON_RULE.value.earlyBase),
-  afternoonEnd: fmtHMRule(AFTERNOON_RULE.value.endEarlyFrom)
+  afternoonEnd: fmtHMRule(AFTERNOON_RULE.value.stdEnd)
 }))
 const timeForm = reactive({ ...DEFAULT_TIMES.value })
 
@@ -778,39 +805,6 @@ function applyPunchText() {
   timeForm.afternoonEnd = picked[3]!
 }
 
-// 上午上班：就近取整到整点/半点后限制在 [早到计入, 标准上班]（早到保底、迟到封顶）
-function effectiveMorningStart(t: number): number {
-  const rounded = roundToHalfHour(t)
-  if (rounded <= MORNING_RULE.value.earlyBase) return MORNING_RULE.value.earlyBase
-  if (rounded > MORNING_RULE.value.stdStart) return MORNING_RULE.value.stdStart
-  return rounded
-}
-
-// 下午上班：不晚于迟到宽限点（含）按早到计入时间算，之后按标准上班时间算
-function effectiveAfternoonStart(t: number): number {
-  if (t <= AFTERNOON_RULE.value.lateLimit) return AFTERNOON_RULE.value.earlyBase
-  return AFTERNOON_RULE.value.stdStart
-}
-
-// 生效下班时间：不低于（标准下班 - 10分钟）时按标准下班算；
-// allowOvertime 为 true 时，晚于标准下班的时间取最接近的整点/半点（加班），距离相等时向下；
-// 为 false 时封顶按标准下班时间算（如上午下班超过 11:30 不计加班）
-function effectiveEnd(t: number, rule: { stdEnd: number; endEarlyFrom: number }, allowOvertime: boolean): number {
-  if (t >= rule.endEarlyFrom) {
-    if (!allowOvertime) return rule.stdEnd
-    if (t <= rule.stdEnd) return rule.stdEnd
-    return roundToHalfHour(t)
-  }
-  return t
-}
-
-// 取最接近的整点/半点（30分钟刻度），距离相等时向下取整（如 18:15→18:00、18:22→18:30）
-function roundToHalfHour(t: number): number {
-  const lower = Math.floor(t / 30) * 30
-  const upper = lower + 30
-  return (t - lower) <= (upper - t) ? lower : upper
-}
-
 // 解析 HH:MM 为分钟数
 function parseTime(t: string): number | null {
   const m = t.match(/^(\d{1,2}):(\d{2})$/)
@@ -821,31 +815,19 @@ function parseTime(t: string): number | null {
   return h * 60 + min
 }
 
-// 根据打卡规则折算四个时间点的生效时间
+// 四个打卡时间点的实际分钟数（0 表示未填）
+// 工时按实际打卡时间计算，不再做取整/保底/封顶折算
 const effectiveTimes = computed(() => {
   const ms = parseTime(timeForm.morningStart)
   const me = parseTime(timeForm.morningEnd)
   const as_ = parseTime(timeForm.afternoonStart)
   const ae = parseTime(timeForm.afternoonEnd)
-  // 半天模式：上午上班打卡不早于上午下班点说明上午未出勤，
-  // 按“半天（下午早到~标准下班）+ 加班”计算，上午打卡忽略（需下午下班完整，否则整体为空）
-  if (ms !== null && ms >= MORNING_RULE.value.endEarlyFrom) {
-    if (ae === null) return null
-    return {
-      isHalfDay: true,
-      morningStart: 0,
-      morningEnd: 0,
-      afternoonStart: AFTERNOON_RULE.value.earlyBase,
-      afternoonEnd: effectiveEnd(ae, AFTERNOON_RULE.value, true)
-    }
-  }
   return {
-    isHalfDay: false,
-    // 任一时间为空（值为 0）则对应时段不计工时（手动可选择空）
-    morningStart: ms !== null ? effectiveMorningStart(ms) : 0,
-    morningEnd: me !== null ? effectiveEnd(me, MORNING_RULE.value, false) : 0,
-    afternoonStart: as_ !== null ? effectiveAfternoonStart(as_) : 0,
-    afternoonEnd: ae !== null ? effectiveEnd(ae, AFTERNOON_RULE.value, true) : 0
+    // 未填（parseTime 为 null）记为 0，对应时段不计工时
+    morningStart: ms !== null ? ms : 0,
+    morningEnd: me !== null ? me : 0,
+    afternoonStart: as_ !== null ? as_ : 0,
+    afternoonEnd: ae !== null ? ae : 0
   }
 })
 
@@ -854,42 +836,25 @@ function fmtMin(min: number): string {
   return `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')}`
 }
 
-// 生效时间描述
+// 生效时间描述（按实际打卡时间）
 const effectiveTimeText = computed(() => {
   const e = effectiveTimes.value
-  if (!e) return ''
-  if (e.isHalfDay) {
-    const overtime = Math.max(0, e.afternoonEnd - AFTERNOON_RULE.value.stdEnd)
-    return `半天 ${fmtMin(AFTERNOON_RULE.value.earlyBase)}-${fmtMin(AFTERNOON_RULE.value.stdEnd)}${overtime > 0 ? ` + 加班至 ${fmtMin(e.afternoonEnd)}` : ''}`
-  }
   const morningText = e.morningStart > 0 && e.morningEnd > 0 ? `${fmtMin(e.morningStart)}-${fmtMin(e.morningEnd)}` : '上午空'
   const afternoonText = e.afternoonStart > 0 && e.afternoonEnd > 0 ? `${fmtMin(e.afternoonStart)}-${fmtMin(e.afternoonEnd)}` : '下午空'
   return `${morningText} / ${afternoonText}`
 })
 
-// 打卡规则说明（随设置变化）
+// 打卡规则说明：工时按实际打卡时间计算，规则仅用于判定打卡时间的归属
 const ruleHelp = computed(() => {
   const m = MORNING_RULE.value
   const a = AFTERNOON_RULE.value
-  const halfDay = ((a.stdEnd - a.earlyBase) / 60).toFixed(1)
-  return `上午上班就近取整到整点/半点后限制在 ${fmtHMRule(m.earlyBase)}~${fmtHMRule(m.stdStart)}；上午下班 ${fmtHMRule(m.endEarlyFrom)} 后按 ${fmtHMRule(m.stdEnd)} 算，不计加班；`
-    + `下午上班 ${fmtHMRule(a.lateLimit)} 前按 ${fmtHMRule(a.earlyBase)} 算，之后按 ${fmtHMRule(a.stdStart)} 算；下午下班 ${fmtHMRule(a.endEarlyFrom)} 后按 ${fmtHMRule(a.stdEnd)} 算，`
-    + `加班打卡按最接近的整点/半点取整（如 18:15 按 18:00 算，18:22 按 18:30 算）；`
-    + `上午上班不早于 ${fmtHMRule(m.endEarlyFrom)} 视为半天，按 ${halfDay}h + 加班计算`
+  return `工时按实际打卡时间计算：上午 = 上午下班 − 上午上班，下午 = 下午下班 − 下午上班（早到晚走如实计入，缺失的打卡点对应时段不计工时）；`
+    + `标准时间（上午 ${fmtHMRule(m.stdStart)}~${fmtHMRule(m.stdEnd)}、下午 ${fmtHMRule(a.stdStart)}~${fmtHMRule(a.stdEnd)}）用于判定打卡时间属于上午还是下午`
 })
 
-// 根据生效时间计算工时：
-// 半天模式 = 半天固定时长（下午早到~标准下班）+ 标准下班后的加班（下班打卡按最接近整点/半点取整）；
-// 正常模式 = 上午时段 + 下午时段，取各时段有效时长
+// 按实际打卡时间计算工时：上午时段 + 下午时段（未填或顺序颠倒的时段不计）
 const manualHours = computed(() => {
   const e = effectiveTimes.value
-  if (!e) return 0
-  if (e.isHalfDay) {
-    const halfDay = (AFTERNOON_RULE.value.stdEnd - AFTERNOON_RULE.value.earlyBase) / 60
-    const overtime = Math.max(0, (e.afternoonEnd - AFTERNOON_RULE.value.stdEnd) / 60)
-    return Math.round((halfDay + overtime) * 10) / 10
-  }
-  // 上午上班/下午下班为空（值为 0）时该时段不计工时
   const morning = e.morningStart > 0 && e.morningEnd > e.morningStart ? (e.morningEnd - e.morningStart) / 60 : 0
   const afternoon = e.afternoonStart > 0 && e.afternoonEnd > e.afternoonStart ? (e.afternoonEnd - e.afternoonStart) / 60 : 0
   return Math.round((morning + afternoon) * 10) / 10
@@ -1014,26 +979,32 @@ const savingRule = ref(false)
 const ruleForm = reactive<Record<keyof AttendanceRule, string>>({
   morningStart: DEFAULT_RULE.morningStart,
   morningEarly: String(DEFAULT_RULE.morningEarly),
+  morningGrace: String(DEFAULT_RULE.morningGrace),
   morningEnd: DEFAULT_RULE.morningEnd,
   morningEndEarly: String(DEFAULT_RULE.morningEndEarly),
+  morningEndGrace: String(DEFAULT_RULE.morningEndGrace),
   afternoonStart: DEFAULT_RULE.afternoonStart,
   afternoonEarly: String(DEFAULT_RULE.afternoonEarly),
   afternoonGrace: String(DEFAULT_RULE.afternoonGrace),
   afternoonEnd: DEFAULT_RULE.afternoonEnd,
-  afternoonEndEarly: String(DEFAULT_RULE.afternoonEndEarly)
+  afternoonEndEarly: String(DEFAULT_RULE.afternoonEndEarly),
+  afternoonEndGrace: String(DEFAULT_RULE.afternoonEndGrace)
 })
 
 // 用规则填充表单
 function fillRuleForm(r: AttendanceRule) {
   ruleForm.morningStart = r.morningStart
   ruleForm.morningEarly = String(r.morningEarly)
+  ruleForm.morningGrace = String(r.morningGrace)
   ruleForm.morningEnd = r.morningEnd
   ruleForm.morningEndEarly = String(r.morningEndEarly)
+  ruleForm.morningEndGrace = String(r.morningEndGrace)
   ruleForm.afternoonStart = r.afternoonStart
   ruleForm.afternoonEarly = String(r.afternoonEarly)
   ruleForm.afternoonGrace = String(r.afternoonGrace)
   ruleForm.afternoonEnd = r.afternoonEnd
   ruleForm.afternoonEndEarly = String(r.afternoonEndEarly)
+  ruleForm.afternoonEndGrace = String(r.afternoonEndGrace)
 }
 
 function openRuleDialog() {
@@ -1055,13 +1026,16 @@ function ruleFormToRule(): AttendanceRule {
   return {
     morningStart: parseHMRule(ruleForm.morningStart) !== null ? ruleForm.morningStart : DEFAULT_RULE.morningStart,
     morningEarly: numOr(ruleForm.morningEarly, DEFAULT_RULE.morningEarly),
+    morningGrace: numOr(ruleForm.morningGrace, DEFAULT_RULE.morningGrace),
     morningEnd: parseHMRule(ruleForm.morningEnd) !== null ? ruleForm.morningEnd : DEFAULT_RULE.morningEnd,
     morningEndEarly: numOr(ruleForm.morningEndEarly, DEFAULT_RULE.morningEndEarly),
+    morningEndGrace: numOr(ruleForm.morningEndGrace, DEFAULT_RULE.morningEndGrace),
     afternoonStart: parseHMRule(ruleForm.afternoonStart) !== null ? ruleForm.afternoonStart : DEFAULT_RULE.afternoonStart,
     afternoonEarly: numOr(ruleForm.afternoonEarly, DEFAULT_RULE.afternoonEarly),
     afternoonGrace: numOr(ruleForm.afternoonGrace, DEFAULT_RULE.afternoonGrace),
     afternoonEnd: parseHMRule(ruleForm.afternoonEnd) !== null ? ruleForm.afternoonEnd : DEFAULT_RULE.afternoonEnd,
-    afternoonEndEarly: numOr(ruleForm.afternoonEndEarly, DEFAULT_RULE.afternoonEndEarly)
+    afternoonEndEarly: numOr(ruleForm.afternoonEndEarly, DEFAULT_RULE.afternoonEndEarly),
+    afternoonEndGrace: numOr(ruleForm.afternoonEndGrace, DEFAULT_RULE.afternoonEndGrace)
   }
 }
 
@@ -1073,8 +1047,8 @@ const ruleFormPreview = computed(() => {
   const as_ = parseHMRule(r.afternoonStart) ?? 13 * 60 + 30
   const ae = parseHMRule(r.afternoonEnd) ?? 18 * 60
   return {
-    morning: `上班 ${fmtHMRule(ms - r.morningEarly)}~${fmtHMRule(ms)}；下班 ${fmtHMRule(me - r.morningEndEarly)} 后按 ${fmtHMRule(me)} 算`,
-    afternoon: `上班 ${fmtHMRule(as_ - r.afternoonGrace)} 前按 ${fmtHMRule(as_ - r.afternoonEarly)} 算，之后按 ${fmtHMRule(as_)} 算；下班 ${fmtHMRule(ae - r.afternoonEndEarly)} 后按 ${fmtHMRule(ae)} 算`
+    morning: `标准时段 ${fmtHMRule(ms)}~${fmtHMRule(me)}（${((me - ms) / 60).toFixed(1)} 小时）`,
+    afternoon: `标准时段 ${fmtHMRule(as_)}~${fmtHMRule(ae)}（${((ae - as_) / 60).toFixed(1)} 小时）`
   }
 })
 
@@ -1087,6 +1061,8 @@ async function saveRule() {
     if (response.success) {
       attendanceRule.value = response.data || payload
       showRuleDialog.value = false
+      // 规则已更新，自动刷新下方日历与考勤内容
+      await refreshAll()
     } else {
       alert(response.message || '保存失败')
     }
@@ -1107,6 +1083,42 @@ async function fetchRule() {
     }
   } catch (error) {
     console.error('获取打卡规则失败:', error)
+  }
+}
+
+// 按当前打卡规则，用已保存的打卡时间重算当前月份的手动工时（写入数据库），并给出轻量提示
+const recalcNotice = ref('')
+let recalcNoticeTimer: ReturnType<typeof setTimeout> | null = null
+async function recalcMonth() {
+  try {
+    const res = await $fetch('/api/attendance-recalc', {
+      method: 'POST',
+      body: { year: currentYear.value, month: currentMonth.value }
+    }) as any
+    if (res?.success && res.total > 0) {
+      recalcNotice.value = res.message
+      if (recalcNoticeTimer) clearTimeout(recalcNoticeTimer)
+      recalcNoticeTimer = setTimeout(() => { recalcNotice.value = '' }, 5000)
+    }
+  } catch (error: any) {
+    console.error('按规则重算考勤工时失败:', error)
+  }
+}
+
+// 刷新下方日历与考勤内容（先按当前规则重算当月工时，再重新拉取规则、人员、考勤、加班、工资对比）
+const refreshing = ref(false)
+async function refreshAll() {
+  refreshing.value = true
+  try {
+    await fetchRule()
+    // 规则可能已变更：先用最新规则把当月已导入/录入的打卡时间重新折算为工时
+    await recalcMonth()
+    await fetchPersons()
+    await Promise.all([fetchAttendance(), fetchOvertimeDates(), fetchSalaryCompare()])
+  } catch (error: any) {
+    console.error('刷新考勤内容失败:', error)
+  } finally {
+    refreshing.value = false
   }
 }
 
